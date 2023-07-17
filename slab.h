@@ -10,7 +10,12 @@ struct slab_callback;
 /* Header of a slab -- shouldn't contain any pointer as it is persisted on disk. */
 struct slab {
    struct slab_context *ctx;
+   uint64_t key;
+   uint64_t min;
+   uint64_t max;
+   uint64_t seq;
 
+   //TODO::JS::구조체 수정
    size_t item_size;
    size_t nb_items;   // Number of non freed items
    size_t last_item;  // Total number of items, including freed

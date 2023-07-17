@@ -1,6 +1,8 @@
 #include "headers.h"
 #include "indexes/rbtree.h"
 
+extern int print;
+
 static uint64_t get_prefix_for_item(char *item) {
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
@@ -8,46 +10,110 @@ static uint64_t get_prefix_for_item(char *item) {
 }
 
 /* In memory RB-Tree */
-static rbtree *items_locations;
-static pthread_spinlock_t *items_location_locks;
-index_entry_t *rbtree_worker_lookup(int worker_id, void *item) {
-   return rbtree_lookup(items_locations[worker_id], (void*)get_prefix_for_item(item), pointer_cmp);
+static rbtree *trees_location;
+static pthread_spinlock_t *trees_location_lock;
+tree_entry_t *rbtree_worker_lookup(int worker_id, void *item) {
+   return rbtree_lookup(trees_location[worker_id], (void*)get_prefix_for_item(item), pointer_cmp);
 }
-void rbtree_worker_insert(int worker_id, void *item, index_entry_t *e) {
-   pthread_spin_lock(&items_location_locks[worker_id]);
-   rbtree_insert(items_locations[worker_id], (void*)get_prefix_for_item(item), e, pointer_cmp);
-   pthread_spin_unlock(&items_location_locks[worker_id]);
+void rbtree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
+   pthread_spin_lock(&trees_location_lock[worker_id]);
+   rbtree_insert(trees_location[worker_id], (void*)e->key, e, pointer_cmp);
+   pthread_spin_unlock(&trees_location_lock[worker_id]);
 }
 void rbtree_worker_delete(int worker_id, void *item) {
-   pthread_spin_lock(&items_location_locks[worker_id]);
-   rbtree_delete(items_locations[worker_id], (void*)get_prefix_for_item(item), pointer_cmp);
-   pthread_spin_unlock(&items_location_locks[worker_id]);
+   pthread_spin_lock(&trees_location_lock[worker_id]);
+   rbtree_delete(trees_location[worker_id], (void*)get_prefix_for_item(item), pointer_cmp);
+   pthread_spin_unlock(&trees_location_lock[worker_id]);
 }
 
-void rbtree_index_add(struct slab_callback *cb, void *item) {
-   index_entry_t e = {
-      .slab = cb->slab,
-      .slab_idx = cb->slab_idx,
+void rbtree_tree_add(struct slab_callback *cb, void *item, uint64_t tmp_key) {
+   tree_entry_t e = {
+         .key = tmp_key,
+         .tree = item,
+         .slab = cb->slab,
    };
-   rbtree_worker_insert(get_worker(e.slab), item, &e);
+   rbtree_worker_insert(0, NULL, &e);
 }
 
+tree_entry_t *rbtree_worker_get(void *key) {
+   return rbtree_closest_lookup(trees_location[0], key, pointer_cmp);
+}
+
+void rbtree_node_update(uint64_t old_key, uint64_t new_key) {
+  rbtree_n_update(trees_location[0], (void*)old_key, (void*)new_key, pointer_cmp);
+}
+
+index_entry_t *rbtree_tnt_lookup(int worker_id, void *item) {
+   rbtree t = trees_location[0];
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+   rbtree_node n = t->root;
+   index_entry_t *e = NULL;
+   int count = 1;
+
+   uint64_t elapsed;
+   struct timeval st, et;
+
+   //if (print) {
+   //   gettimeofday(&st,NULL);
+   //}
+
+   while (n != NULL) {
+      struct slab *s = n->value.slab;
+      int comp_result;
+      if (key >= s->min && key <= s->max) {
+         // printf("LLL %lu: %lu, %lu // %lu-%lu\n", s->seq,
+             // (uint64_t)s->key, key, s->min, s->max);
+         count++;
+         e = btree_worker_lookup(worker_id, item);
+         // if (e) {
+           //if (print) {
+           //  gettimeofday(&et,NULL);
+           //  elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
+           //  printf("(%s,%d) [%6luus] %d FIND \n", __FUNCTION__ , __LINE__, elapsed, count);
+           //}
+           // return e; 
+         // }
+      }
+      comp_result = pointer_cmp((void*)key, n->key);
+      //if (comp_result == 0) {
+      //   t->last_visited_node = n;
+      //   n = NULL;
+      //} else 
+      if (comp_result <= 0) {
+         n = n->left;
+      } else {
+         assert(comp_result > 0);
+         n = n->right;
+      }
+   }
+  // if (print) {
+  //   gettimeofday(&et,NULL);
+  //   elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
+  //   printf("(%s,%d) [%6luus] %d NONE \n", __FUNCTION__ , __LINE__, elapsed, count);
+  // }
+   if (e)
+      return e;
+   return NULL;
+   // return lookup_tnt_index(trees_location[0], (void*)key, pointer_cmp);
+}
 
 /*
  * Returns up to scan_size keys >= item.key.
  * If item is not in the database, this will still return up to scan_size keys > item.key.
  */
-struct index_scan rbtree_init_scan(void *item, size_t scan_size) {
+struct tree_scan rbtree_init_scan(void *item, size_t scan_size) {
    size_t nb_workers = get_nb_workers();
 
    struct rbtree_scan_tmp *res = malloc(nb_workers * sizeof(*res));
    for(size_t w = 0; w < nb_workers; w++) {
-      pthread_spin_lock(&items_location_locks[w]);
-      res[w] = rbtree_lookup_n(items_locations[w], (void*)get_prefix_for_item(item), scan_size, pointer_cmp);
-      pthread_spin_unlock(&items_location_locks[w]);
+      pthread_spin_lock(&trees_location_lock[w]);
+      res[w] = rbtree_lookup_n(trees_location[w], (void*)get_prefix_for_item(item), scan_size, pointer_cmp);
+      pthread_spin_unlock(&trees_location_lock[w]);
    }
 
-   struct index_scan scan_res;
+   struct tree_scan scan_res;
    scan_res.entries = malloc(scan_size * sizeof(*scan_res.entries));
    scan_res.hashes = malloc(scan_size * sizeof(*scan_res.hashes));
    scan_res.nb_entries = 0;
@@ -83,10 +149,10 @@ struct index_scan rbtree_init_scan(void *item, size_t scan_size) {
 }
 
 void rbtree_init(void) {
-   items_locations = malloc(get_nb_workers() * sizeof(*items_locations));
-   items_location_locks = malloc(get_nb_workers() * sizeof(*items_location_locks));
+   trees_location = malloc(get_nb_workers() * sizeof(*trees_location));
+   trees_location_lock = malloc(get_nb_workers() * sizeof(*trees_location_lock));
    for(size_t w = 0; w < get_nb_workers() ; w++) {
-      items_locations[w] = rbtree_create();
-      pthread_spin_init(&items_location_locks[w], PTHREAD_PROCESS_PRIVATE);
+      trees_location[w] = rbtree_create();
+      pthread_spin_init(&trees_location_lock[w], PTHREAD_PROCESS_PRIVATE);
    }
 }

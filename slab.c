@@ -19,6 +19,8 @@
  * This whole file assumes that when a file is newly created, then all the data is equal to 0. This should be true on Linux.
  */
 
+static int create_sequence = 0;
+
 /*
  * Where is my item in the slab?
  */
@@ -107,38 +109,47 @@ void rebuild_index(int slab_worker_id, struct slab *s, struct slab_callback *cal
  * Create a slab: a file that only contains items of a given size.
  * @callback is a callback that will be called on all previously existing items of the slab if it is restored from disk.
  */
-struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, size_t item_size, struct slab_callback *callback) {
+struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t key, struct slab_callback *callback) {
    struct stat sb;
    char path[512];
    struct slab *s = calloc(1, sizeof(*s));
 
    size_t disk = slab_worker_id / (get_nb_workers()/get_nb_disks());
-   sprintf(path, PATH, disk, slab_worker_id, 0LU, item_size);
+   sprintf(path, PATH, disk, slab_worker_id, 0LU, key);
    s->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
    if(s->fd == -1)
       perr("Cannot allocate slab %s", path);
 
    fstat(s->fd, &sb);
    s->size_on_disk = sb.st_size;
-   if(s->size_on_disk < 2*PAGE_SIZE) {
-      fallocate(s->fd, 0, 0, 2*PAGE_SIZE);
-      s->size_on_disk = 2*PAGE_SIZE;
+
+   if(s->size_on_disk < 16384*PAGE_SIZE) {
+      fallocate(s->fd, 0, 0, 16384*PAGE_SIZE);
+      s->size_on_disk = 16384*PAGE_SIZE;
    }
 
-   size_t nb_items_per_page = PAGE_SIZE / item_size;
+    __sync_add_and_fetch(&create_sequence, 1);
+   size_t nb_items_per_page = PAGE_SIZE / 1024;
    s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
+   // TODO::JS::구조체 수정
    s->nb_items = 0;
-   s->item_size = item_size;
+   s->item_size = 1024;
    s->nb_free_items = 0;
    s->last_item = 0;
    s->ctx = ctx;
 
+   s->min = -1;
+   s->max = 0;
+   s->key = key;
+   s->seq = create_sequence;
+   /*
    // Read the first page and rebuild the index if the file contains data
    struct item_metadata *meta = read_item(s, 0);
    if(meta->key_size != 0) { // if the key_size is not 0 then then file has been written before
       callback->slab = s;
       rebuild_index(slab_worker_id, s, callback);
    }
+   */
 
    return s;
 }
@@ -160,6 +171,27 @@ struct slab* resize_slab(struct slab *s) {
       s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
    }
    return s;
+}
+
+struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
+   struct item_metadata *meta = (struct item_metadata *)cb->item;
+   char *item_key = &cb->item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+   uint64_t new_key = (s->min + s->max)/2;
+
+   if(s->key != new_key)
+     tnt_node_update(s->key, new_key);
+   printf("NNN: %lu, %lu // %lu-%lu\n", 
+          (uint64_t)s->key, (uint64_t)new_key, 
+          s->min, s->max);
+   s->key = new_key;
+
+   cb->slab = create_slab(s->ctx, get_worker(s), new_key-1, cb);
+   tnt_tree_add(cb, tnt_tree_create(), new_key-1);
+   cb->slab = create_slab(s->ctx, get_worker(s), new_key+1, cb);
+   tnt_tree_add(cb, tnt_tree_create(), new_key+1);
+   cb->slab =  tnt_tree_get((void*)key)->slab;
+   return cb->slab;
 }
 
 
@@ -256,8 +288,10 @@ void add_item_async_cb1(struct slab_callback *callback) {
 
    struct lru *lru_entry = callback->lru_entry;
    if(lru_entry == NULL) { // no free page, append
-      if(s->last_item >= s->nb_max_items)
-         resize_slab(s);
+      // TODO::JS::일단 아이템 사이즈 고정시킴
+      if((s->nb_items + 1024) > s->nb_max_items) {
+         close_and_create_slab(s, callback);
+      }
       callback->slab_idx = s->last_item;
       assert(s->last_item < s->nb_max_items);
       s->last_item++;

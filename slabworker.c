@@ -128,12 +128,22 @@ size_t get_item_size(char *item) {
 }
 
 static struct slab *get_slab(struct slab_context *ctx, void *item) {
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+   struct tree_entry *tree = tnt_tree_get((void*)key);
+   // printf("NNN: %lu\n", tree->key);
+
+   if (!tree)
+      die("Item is too big\n");
+   /*
    size_t item_size = get_item_size(item);
    for(size_t i = 0; i < sizeof(slab_sizes)/sizeof(*slab_sizes); i++) {
       if(item_size <= slab_sizes[i])
          return ctx->slabs[i];
    }
-   die("Item is too big\n");
+   */
+   return tree->slab;
 }
 
 struct slab *get_item_slab(int worker_id, void *item) {
@@ -219,7 +229,8 @@ again:
 
       index_entry_t *e = NULL;
       if(action != READ_NO_LOOKUP)
-         e = memory_index_lookup(ctx->worker_id, callback->item);
+         // e = memory_index_lookup(ctx->worker_id, callback->item);
+         e = tnt_index_lookup(ctx->worker_id, callback->item);
 
       switch(action) {
          case READ_NO_LOOKUP:
@@ -343,9 +354,11 @@ static void *worker_slab_init(void *pdata) {
    ctx->slabs = malloc(nb_slabs*sizeof(*ctx->slabs));
    struct slab_callback *cb = malloc(sizeof(*cb));
    cb->cb = worker_slab_init_cb;
-   for(size_t i = 0; i < nb_slabs; i++) {
-      ctx->slabs[i] = create_slab(ctx, ctx->worker_id, slab_sizes[i], cb);
-   }
+
+   cb->slab = create_slab(ctx, ctx->worker_id, 0, cb);
+   tnt_tree_add(cb, tnt_tree_create(), 0);
+
+   // ctx->slabs[0] = create_slab(ctx, ctx->worker_id, nb_sequence, cb);
    free(cb);
 
     __sync_add_and_fetch(&nb_workers_ready, 1);
@@ -386,6 +399,8 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
 
    memory_index_init();
 
+   tnt_tree_init();
+
    pthread_t t;
    slab_contexts = calloc(nb_workers, sizeof(*slab_contexts));
    for(size_t w = 0; w < nb_workers; w++) {
@@ -403,6 +418,8 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
 
 size_t get_database_size(void) {
    uint64_t size = 0;
+   //TODO::JS
+   /*
    size_t nb_slabs = sizeof(slab_sizes)/sizeof(*slab_sizes);
 
    size_t nb_workers = get_nb_workers();
@@ -412,6 +429,7 @@ size_t get_database_size(void) {
          size += ctx->slabs[i]->nb_items;
       }
    }
+   */
 
    return size;
 }

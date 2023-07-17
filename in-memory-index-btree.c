@@ -14,6 +14,7 @@ static __thread index_entry_t tmp_entry;
 static pthread_spinlock_t *items_location_locks;
 index_entry_t *btree_worker_lookup(int worker_id, void *item) {
    uint64_t hash = get_prefix_for_item(item);
+    // printf("# \tLookup Debug hash 1: %lu\n", hash);
    int res = btree_find(items_locations[worker_id], (unsigned char*)&hash, sizeof(hash), &tmp_entry);
    if(res)
       return &tmp_entry;
@@ -22,6 +23,7 @@ index_entry_t *btree_worker_lookup(int worker_id, void *item) {
 }
 void btree_worker_insert(int worker_id, void *item, index_entry_t *e) {
    uint64_t hash = get_prefix_for_item(item);
+   // printf("TTT1: %lu\n", hash);
 
    pthread_spin_lock(&items_location_locks[worker_id]);
    btree_insert(items_locations[worker_id], (unsigned char*)&hash, sizeof(hash), e);
@@ -40,6 +42,13 @@ void btree_worker_delete(int worker_id, void *item) {
 }
 
 void btree_index_add(struct slab_callback *cb, void *item) {
+   index_entry_t new_entry;
+   new_entry.slab = cb->slab;
+   new_entry.slab_idx = cb->slab_idx;
+   btree_worker_insert(get_worker(new_entry.slab), item, &new_entry);
+}
+
+void btree_index_add_utree(struct slab_callback *cb, void *item) {
    index_entry_t new_entry;
    new_entry.slab = cb->slab;
    new_entry.slab_idx = cb->slab_idx;
@@ -139,4 +148,6 @@ void btree_init(void) {
    }
 }
 
-
+btree_t* btree_tnt_create(void) {
+   return btree_create();
+}

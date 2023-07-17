@@ -12,7 +12,9 @@ extern "C"
    }
 
    int btree_find(btree_t *t, unsigned char* k, size_t len, struct index_entry *e) {
+      // printf("# \tLookup Debug hash 2: %hhu\n", *k);
       uint64_t hash = *(uint64_t*)k;
+      // printf("# \tLookup Debug hash 3: %lu\n", hash);
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
       auto i = b->find(hash);
       if(i != b->end()) {

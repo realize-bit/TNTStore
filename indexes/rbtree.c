@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 the authors listed at the following URL, and/or
+/* Copyright (c)2011 the authors listed at the following URL, and/or
    the authors of referenced articles or incorporated external code:
 http://en.literateprograms.org/Red-black_tree_(C)?action=history&offset=20090121005050
 
@@ -25,9 +25,11 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 */
 
 #include "rbtree.h"
+#include "btree.h"
 #include <assert.h>
 
 #include <stdlib.h>
+#include <stdio.h>
 
 
 typedef rbtree_node node;
@@ -48,7 +50,7 @@ static void verify_property_5(node root);
 static void verify_property_5_helper(node n, int black_count, int* black_count_path);
 #endif
 
-static node new_node(void* key, index_entry_t* value, color node_color, node left, node right);
+static node new_node(void* key, tree_entry_t* value, color node_color, node left, node right);
 static node lookup_node(rbtree t, void* key, compare_func compare);
 static void rotate_left(rbtree t, node n);
 static void rotate_right(rbtree t, node n);
@@ -169,7 +171,7 @@ rbtree rbtree_create() {
    return t;
 }
 
-node new_node(void* key, index_entry_t* value, color node_color, node left, node right) {
+node new_node(void* key, tree_entry_t* value, color node_color, node left, node right) {
    node result = malloc(sizeof(struct rbtree_node_t));
    result->key = key;
    result->value = *value;
@@ -204,22 +206,35 @@ node lookup_closest_node(rbtree t, void* key, compare_func compare) {
    node closest = NULL;
    while (n != NULL) {
       int comp_result = compare(key, n->key);
-      if (comp_result == 0) {
-         t->last_visited_node = n;
-         return n;
-      } else if (comp_result < 0) {
+      //if (comp_result == 0) {
+      //   t->last_visited_node = n;
+      //   return n;
+      //} else 
+      if (comp_result <= 0) {
          closest = n;
          n = n->left;
       } else {
          assert(comp_result > 0);
+         //::JS::수정함
+         closest = n;
          n = n->right;
       }
    }
    return closest;
 }
 
-index_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
+void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare) {
+   node n = lookup_node(t, old_key, compare);
+   n->key = new_key;
+}
+
+tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
    node n = lookup_node(t, key, compare);
+   return n == NULL ? NULL : &n->value;
+}
+
+tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare) {
+   node n = lookup_closest_node(t, key, compare);
    return n == NULL ? NULL : &n->value;
 }
 
@@ -259,26 +274,28 @@ void replace_node(rbtree t, node oldn, node newn) {
    }
 }
 
-void rbtree_insert(rbtree t, void* key, index_entry_t* value, compare_func compare) {
+void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare) {
    node inserted_node = new_node(key, value, RED, NULL, NULL);
    /* Classic hack to speed up the find & insert case */
-   if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
-      t->last_visited_node->value = *value;
-      free(inserted_node);
-      return;
-   } else if (t->root == NULL) {
+   //if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
+   //   t->last_visited_node->value = *value;
+   //   free(inserted_node);
+   //   return;
+   //} else 
+    if (t->root == NULL) {
       t->root = inserted_node;
       t->nb_elements = 1;
    } else {
       node n = t->root;
       while (1) {
          int comp_result = compare(key, n->key);
-         if (comp_result == 0) {
-            n->value = *value;
-            /* inserted_node isn't going to be used, don't leak it */
-            free (inserted_node);
-            return;
-         } else if (comp_result < 0) {
+         //if (comp_result == 0) {
+         //   n->value = *value;
+         //   /* inserted_node isn't going to be used, don't leak it */
+         //   free (inserted_node);
+         //   return;
+         //} else 
+         if (comp_result <= 0) {
             if (n->left == NULL) {
                n->left = inserted_node;
                t->nb_elements++;

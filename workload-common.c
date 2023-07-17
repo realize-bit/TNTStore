@@ -40,7 +40,17 @@ char *create_workload_item(struct workload *w) {
  * Fill the DB with missing items
  */
 static void add_in_tree(struct slab_callback *cb, void *item) {
+  struct slab *s = cb->slab;
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+
    memory_index_add(cb, item);
+   if (key < s->min)
+      s->min = key;
+   if (key > s->max)
+      s->max = key;
+
    free(cb->item);
    free(cb);
 }
@@ -101,11 +111,13 @@ void repopulate_db(struct workload *w) {
 
    // Say that this database is for that workload
    if(nb_items_already_in_db == 0) {
-      struct slab_callback *cb = malloc(sizeof(*cb));
-      cb->cb = add_in_tree;
-      cb->payload = NULL;
-      cb->item = workload_item;
-      kv_add_async(cb);
+      // TODO::JS::
+      printf("Skip inserting Workload item\n");
+      //struct slab_callback *cb = malloc(sizeof(*cb));
+      //cb->cb = add_in_tree;
+      //cb->payload = NULL;
+      //cb->item = workload_item;
+      //kv_add_async(cb);
    } else {
       nb_items_already_in_db--; // do not count the workload_item
    }

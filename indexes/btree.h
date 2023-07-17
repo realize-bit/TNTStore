@@ -8,7 +8,7 @@ extern "C" {
 #include "memory-item.h"
 typedef void btree_t;
 
-btree_t *btree_create();
+btree_t* btree_create();
 int btree_find(btree_t *t, unsigned char*k, size_t len, struct index_entry *e);
 void btree_delete(btree_t *t, unsigned char*k, size_t len);
 void btree_insert(btree_t *t, unsigned char*k, size_t len, struct index_entry *e);
