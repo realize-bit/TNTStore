@@ -232,7 +232,8 @@ again:
       add_time_in_payload(callback, 2);
 
       index_entry_t *e = NULL;
-      if(action != READ_NO_LOOKUP && action != UPDATE)
+      // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
+      if(action != READ_NO_LOOKUP)
          // e = memory_index_lookup(ctx->worker_id, callback->item);
          e = tnt_index_lookup(callback->item);
 
@@ -275,14 +276,14 @@ again:
             }
             */
             callback->slab = get_slab(ctx, callback->item);
-   struct item_metadata *meta = (struct item_metadata *)callback->item;
-   char *item_key = &callback->item[sizeof(*meta)];
-   uint64_t key = *(uint64_t*)item_key;
+            // struct item_metadata *meta = (struct item_metadata *)callback->item;
+            // char *item_key = &callback->item[sizeof(*meta)];
+            // uint64_t key = *(uint64_t*)item_key;
             // printf("Update key: %lu\n", key);
-            // if (e && callback->slab == e->slab 
-            //     && !TEST_INVAL(e->slab_idx))
-            //   callback->slab_idx = GET_SIDX(e->slab_idx);
-            // else
+            if (e && callback->slab == e->slab 
+                && !TEST_INVAL(e->slab_idx))
+              callback->slab_idx = GET_SIDX(e->slab_idx);
+            else
               callback->slab_idx = -1;
             remove_and_add_item_async(callback);
             break;
@@ -374,7 +375,7 @@ static void *worker_slab_init(void *pdata) {
    cb->cb = worker_slab_init_cb;
 
    cb->slab = create_slab(ctx, ctx->worker_id, 0, cb);
-   tnt_tree_add(cb, tnt_tree_create(), 0);
+   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), 0);
 
    // ctx->slabs[0] = create_slab(ctx, ctx->worker_id, nb_sequence, cb);
    free(cb);

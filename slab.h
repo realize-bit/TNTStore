@@ -15,6 +15,7 @@ struct slab {
    uint64_t max;
    uint64_t seq;
    void *tree;
+   void *filter;
    unsigned char imm;
 
    //TODO::JS::구조체 수정

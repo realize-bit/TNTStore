@@ -46,6 +46,7 @@ static void add_in_tree(struct slab_callback *cb, void *item) {
    uint64_t key = *(uint64_t*)item_key;
 
    memory_index_add_utree(cb, item);
+   filter_add(s->filter, (unsigned char*)&key);
    if (key < s->min)
       s->min = key;
    if (key > s->max)

@@ -46,7 +46,7 @@ struct tree_entry *rbtree_worker_lookup(int worker_id, void *item);
 void rbtree_worker_delete(int worker_id, void *item);
 struct tree_scan rbtree_init_scan(void *item, size_t scan_size);
 
-void rbtree_tree_add(struct slab_callback *cb, void *item, uint64_t tmp_key);
+void rbtree_tree_add(struct slab_callback *cb, void *tree, void *filter, uint64_t tmp_key);
 struct tree_entry *rbtree_worker_get(void *item);
 tree_entry_t *rbtree_worker_get_useq(int seq);
 void rbtree_node_update(uint64_t old_key, uint64_t new_key);
@@ -54,6 +54,7 @@ void rbtree_node_update(uint64_t old_key, uint64_t new_key);
 index_entry_t *rbtree_tnt_lookup(void *item);
 void rbtree_worker_print(void);
 
+#include "indexes/filter.h"
 
 #endif
 

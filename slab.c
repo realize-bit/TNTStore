@@ -195,9 +195,9 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    s->key = new_key;
 
    cb->slab = create_slab(s->ctx, get_worker(s), new_key-1, cb);
-   tnt_tree_add(cb, tnt_tree_create(), new_key-1);
+   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key-1);
    cb->slab = create_slab(s->ctx, get_worker(s), new_key+1, cb);
-   tnt_tree_add(cb, tnt_tree_create(), new_key+1);
+   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key+1);
    cb->slab = s;
    // cb->slab =  tnt_tree_get((void*)key)->slab;
    // printf("NNN4: %lu %lu // %lu-%lu\n", 
@@ -364,6 +364,7 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    memory_index_delete_utree(cb->slab->tree, item);
    // printf("ADD %lu -> (%lu, %lu)\n", key, s->key, cb->slab_idx);
    memory_index_add_utree(cb, item);
+   filter_add(s->filter, (unsigned char*)&key);
 
    if (key < s->min) {
       // printf("Min: %lu -> %lu\n", s->min, key);

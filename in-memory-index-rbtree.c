@@ -26,13 +26,14 @@ void rbtree_worker_delete(int worker_id, void *item) {
    pthread_spin_unlock(&trees_location_lock[worker_id]);
 }
 
-void rbtree_tree_add(struct slab_callback *cb, void *item, uint64_t tmp_key) {
+void rbtree_tree_add(struct slab_callback *cb, void *tree, void *filter, uint64_t tmp_key) {
    tree_entry_t e = {
          .seq = cb->slab->seq,
          .key = tmp_key,
          .slab = cb->slab,
    };
-   cb->slab->tree = item;
+   cb->slab->tree = tree;
+   cb->slab->filter = filter;
    rbtree_worker_insert(0, NULL, &e);
 }
 
@@ -55,11 +56,11 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
    uint64_t key = *(uint64_t*)item_key;
    rbtree_node n = t->root;
    index_entry_t *e = NULL, *tmp = NULL;
-   int count = 1;
-   uint64_t cur_seq = 0;
+   int count = 0;
+   // uint64_t cur_seq = 0;
 
-   uint64_t elapsed;
-   struct timeval st, et;
+   // uint64_t elapsed;
+   // struct timeval st, et;
 
    //if (print) {
    //   gettimeofday(&st,NULL);
@@ -68,17 +69,24 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
    while (n != NULL) {
       struct slab *s = n->value.slab;
       int comp_result;
-      if (key >= s->min && key <= s->max && s->seq >= cur_seq) {
+      // if (key >= s->min && key <= s->max && s->seq >= cur_seq) {
+      if (filter_contain(s->filter, (unsigned char *)&key)) {
+         count++;
+        // printf("(%s,%d) FIND in Filter %d\n", __FUNCTION__ , __LINE__, count);
+      // } else
+        // printf("(%s,%d) NONE in Filter %d\n", __FUNCTION__ , __LINE__, count);
          // printf("LLL %lu: %lu, %lu // %lu-%lu\n", s->seq,
              // (uint64_t)s->key, key, s->min, s->max);
-         count++;
          tmp = btree_worker_lookup_utree(s->tree, item);
          // if (print)
           // printf("(%s,%d) [%6luus] %d CHECK \n", __FUNCTION__ , __LINE__, elapsed, count);
          if (tmp) {
           e = tmp;
-          cur_seq = s->seq;
-         }
+          // cur_seq = s->seq;
+          // printf("(%s,%d) FIND in Btree %d\n", __FUNCTION__ , __LINE__, count);
+         } 
+          // else
+          // printf("(%s,%d) NONE in Btree %d\n", __FUNCTION__ , __LINE__, count);
          // if (tmp) {
            // if (print) {
            //  gettimeofday(&et,NULL);
@@ -105,6 +113,7 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
   //   elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
     // printf("(%s,%d) [%6luus] %d NONE \n", __FUNCTION__ , __LINE__, elapsed, count);
   // }
+    // printf("(%s,%d) %d \n", __FUNCTION__ , __LINE__, count);
    if (e)
       return e;
    return NULL;

@@ -78,7 +78,7 @@ int make_fsst(void) {
       while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
         victim = pick_garbage_node();
 
-      if (!victim || cur > 500)
+      if (!victim || cur > 1000)
         break;
 
       if (!vict_file_data)
