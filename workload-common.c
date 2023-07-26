@@ -45,14 +45,18 @@ static void add_in_tree(struct slab_callback *cb, void *item) {
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
 
-   memory_index_add(cb, item);
+   memory_index_add_utree(cb, item);
    if (key < s->min)
       s->min = key;
    if (key > s->max)
       s->max = key;
+   if (s->last_item == s->nb_max_items)
+      s->imm = 1;
 
-   free(cb->item);
-   free(cb);
+   if (!cb->cb_cb) {
+    free(cb->item);
+    free(cb);
+   }
 }
 
 struct rebuild_pdata {
@@ -76,6 +80,7 @@ void *repopulate_db_worker(void *pdata) {
    for(size_t i = start; i < end; i++) {
       struct slab_callback *cb = malloc(sizeof(*cb));
       cb->cb = add_in_tree;
+      cb->cb_cb = NULL;
       cb->payload = NULL;
       cb->item = api->create_unique_item(pos[i], w->nb_items_in_db);
       kv_add_async(cb);
@@ -210,16 +215,19 @@ void compute_stats(struct slab_callback *cb, void *item) {
                get_origin_from_payload(cb, 7), get_time_from_payload(cb, 7) < start ? 0 : cycles_to_us(get_time_from_payload(cb, 7) - start),
                cycles_to_us(end  - start));
       }
-      free(cb->item);
+      if (!cb->cb_cb)
+        free(cb->item);
       if(DEBUG)
          free_payload(cb);
-      free(cb);
+      if (!cb->cb_cb)
+        free(cb);
    } stop_debug_timer(5000, "Callback took more than 5ms???");
 }
 
 struct slab_callback *bench_cb(void) {
    struct slab_callback *cb = malloc(sizeof(*cb));
    cb->cb = compute_stats;
+   cb->cb_cb = NULL;
    cb->payload = allocate_payload();
    return cb;
 }

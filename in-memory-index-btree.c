@@ -21,6 +21,19 @@ index_entry_t *btree_worker_lookup(int worker_id, void *item) {
    else
       return NULL;
 }
+index_entry_t *btree_worker_lookup_utree(btree_t *tree, void *item) {
+   uint64_t hash = get_prefix_for_item(item);
+    // printf("# \tLookup Debug hash 1: %lu\n", hash);
+   int res = btree_find(tree, (unsigned char*)&hash, sizeof(hash), &tmp_entry);
+   if(res)
+      return &tmp_entry;
+   else
+      return NULL;
+}
+int btree_worker_invalid_utree(btree_t *tree, void *item) {
+   uint64_t hash = get_prefix_for_item(item);
+   return btree_set_invalid(tree, (unsigned char*)&hash, sizeof(hash));
+}
 void btree_worker_insert(int worker_id, void *item, index_entry_t *e) {
    uint64_t hash = get_prefix_for_item(item);
    // printf("TTT1: %lu\n", hash);
@@ -28,6 +41,12 @@ void btree_worker_insert(int worker_id, void *item, index_entry_t *e) {
    pthread_spin_lock(&items_location_locks[worker_id]);
    btree_insert(items_locations[worker_id], (unsigned char*)&hash, sizeof(hash), e);
    pthread_spin_unlock(&items_location_locks[worker_id]);
+}
+void btree_worker_insert_utree(btree_t *tree, void *item, index_entry_t *e) {
+   uint64_t hash = get_prefix_for_item(item);
+   // pthread_spin_lock(&items_location_locks[worker_id]);
+   btree_insert(tree, (unsigned char*)&hash, sizeof(hash), e);
+   // pthread_spin_unlock(&items_location_locks[worker_id]);
 }
 void btree_worker_delete(int worker_id, void *item) {
    index_entry_t *old_entry = NULL;
@@ -39,6 +58,11 @@ void btree_worker_delete(int worker_id, void *item) {
 
    if(old_entry)
       free(old_entry);
+}
+void btree_worker_delete_utree(btree_t *tree, void *item) {
+   uint64_t hash = get_prefix_for_item(item);
+
+   btree_delete(tree, (unsigned char *)&(hash), sizeof(hash));
 }
 
 void btree_index_add(struct slab_callback *cb, void *item) {
@@ -52,7 +76,7 @@ void btree_index_add_utree(struct slab_callback *cb, void *item) {
    index_entry_t new_entry;
    new_entry.slab = cb->slab;
    new_entry.slab_idx = cb->slab_idx;
-   btree_worker_insert(get_worker(new_entry.slab), item, &new_entry);
+   btree_worker_insert_utree(cb->slab->tree, item, &new_entry);
 }
 
 
@@ -149,5 +173,5 @@ void btree_init(void) {
 }
 
 btree_t* btree_tnt_create(void) {
-   return btree_create();
+  return btree_create();
 }

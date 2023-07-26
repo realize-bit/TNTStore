@@ -53,7 +53,7 @@ void add_son_in_freelist(struct slab *s, size_t idx, struct item_metadata *item)
 
 void get_free_item_idx(struct slab_callback *cb) {
    if(!cb->slab->nb_free_items_in_memory) {
-      cb->slab_idx = -1;
+      // cb->slab_idx = -1;
       cb->lru_entry = NULL;
       cb->io_cb(cb);
       return;

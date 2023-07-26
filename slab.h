@@ -14,6 +14,8 @@ struct slab {
    uint64_t min;
    uint64_t max;
    uint64_t seq;
+   void *tree;
+   unsigned char imm;
 
    //TODO::JS::구조체 수정
    size_t item_size;
@@ -39,6 +41,7 @@ struct slab_callback {
    slab_cb_t *cb;
    void *payload;
    void *item;
+   slab_cb_t *cb_cb;
 
    // Private
    enum slab_action action;
@@ -49,6 +52,7 @@ struct slab_callback {
    };
    struct lru *lru_entry;
    io_cb_t *io_cb;
+   struct slab *fsst_slab;
 };
 
 struct slab* create_slab(struct slab_context *ctx, int worker_id, size_t item_size, struct slab_callback *callback);
@@ -59,6 +63,7 @@ void read_item_async(struct slab_callback *callback);
 void add_item_async(struct slab_callback *callback);
 void update_item_async(struct slab_callback *callback);
 void remove_item_async(struct slab_callback *callback);
+void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
 #endif

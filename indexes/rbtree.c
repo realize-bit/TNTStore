@@ -35,6 +35,54 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 typedef rbtree_node node;
 typedef enum rbtree_node_color color;
 
+static rbtree_queue *rbqueue;
+
+void initQueue(rbtree_queue *queue)
+{
+    queue->front = queue->rear = NULL; 
+    queue->count = 0;    // 큐 안의 노드 개수를 0으로 설정
+}
+
+int isEmpty(rbtree_queue *queue)
+{
+    return queue->count == 0;    // 큐안의 노드 개수가 0이면 빈 상태
+}
+
+void enqueue(rbtree_queue *queue, node n)
+{
+    queue_node *new = (queue_node *)malloc(sizeof(queue_node)); // newNode 생성
+    new->data = n;
+    new->next = NULL;
+ 
+    if (isEmpty(queue))    // 큐가 비어있을 때
+    {
+        queue->front = new;       
+    }
+    else    // 비어있지 않을 때
+    {
+        queue->rear->next = new;    //맨 뒤의 다음을 newNode로 설정
+    }
+    queue->rear = new;    //맨 뒤를 newNode로 설정   
+    queue->count++;    //큐안의 노드 개수를 1 증가
+}
+
+node dequeue(rbtree_queue *queue)
+{
+    node data;
+    queue_node *ptr;
+    if (isEmpty(queue))    //큐가 비었을 때
+    {
+        printf("Error : Queue is empty!\n");
+        return 0;
+    }
+    ptr = queue->front;    //맨 앞의 노드 ptr 설정 
+    data = ptr->data;    // return 할 데이터  
+    queue->front = ptr->next;    //맨 앞은 ptr의 다음 노드로 설정
+    free(ptr);    // ptr 해제 
+    queue->count--;    //큐의 노드 개수를 1 감소
+    
+    return data;
+}
 
 static node grandparent(node n);
 static node sibling(node n);
@@ -168,11 +216,14 @@ rbtree rbtree_create() {
    t->last_visited_node = NULL;
    t->nb_elements = 0;
    verify_properties(t);
+   rbqueue = malloc(sizeof(rbtree_queue));
+   initQueue(rbqueue);
    return t;
 }
 
 node new_node(void* key, tree_entry_t* value, color node_color, node left, node right) {
    node result = malloc(sizeof(struct rbtree_node_t));
+   result->imm = 0;
    result->key = key;
    result->value = *value;
    result->color = node_color;
@@ -203,8 +254,10 @@ node lookup_node(rbtree t, void* key, compare_func compare) {
 
 node lookup_closest_node(rbtree t, void* key, compare_func compare) {
    node n = t->root;
+   int closest_seq = 0;
    node closest = NULL;
    while (n != NULL) {
+      // printf("Closest %lu %lu\n", n->value.seq, closest_seq);
       int comp_result = compare(key, n->key);
       //if (comp_result == 0) {
       //   t->last_visited_node = n;
@@ -219,12 +272,31 @@ node lookup_closest_node(rbtree t, void* key, compare_func compare) {
          closest = n;
          n = n->right;
       }
+      if (closest->imm == 0)
+        break;
    }
+   if (closest->imm)
+      printf("IMMUM, Don't touch me\n");
    return closest;
+}
+node traverse_node_useq(rbtree t, int key) {
+   node n = NULL;
+   if (key == 0) { // init
+      enqueue(rbqueue, t->root);
+   }
+   if (!isEmpty(rbqueue)) {
+      n = dequeue(rbqueue);
+      if (n->left)
+          enqueue(rbqueue, n->left);
+      if (n->right)
+          enqueue(rbqueue, n->right);
+   }
+   return n;
 }
 
 void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare) {
    node n = lookup_node(t, old_key, compare);
+   n->imm = 1;
    n->key = new_key;
 }
 
@@ -235,6 +307,11 @@ tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
 
 tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare) {
    node n = lookup_closest_node(t, key, compare);
+   return n == NULL ? NULL : &n->value;
+}
+
+tree_entry_t* rbtree_traverse_useq(rbtree t, int seq) {
+   node n = traverse_node_useq(t, seq);
    return n == NULL ? NULL : &n->value;
 }
 
@@ -487,16 +564,45 @@ void delete_case6(rbtree t, node n) {
    }
 }
 
+// Function to print binary tree in 2D
+// It does reverse inorder traversal
+void print2DUtil(node n, int space)
+{
+    // Base case
+    if (n == NULL)
+        return;
+ 
+    // Increase distance between levels
+    space += 10;
+ 
+    // Process right child first
+    print2DUtil(n->right, space);
+ 
+    // Print current node after space
+    // count
+    printf("\n");
+    for (int i = 1; i < space; i++)
+        printf(" ");
+    printf("%lu,%lu,%d\n", n->key, n->value.seq, n->imm);
+ 
+    // Process left child
+    print2DUtil(n->left, space);
+}
+ 
 void rbtree_print_nodes(node n, compare_func show) {
    if(!n)
       return;
+
+   printf("l\n");
    rbtree_print_nodes(n->left, show);
    show(n->key, &n->value);
+   printf("r\n");
    rbtree_print_nodes(n->right, show);
 }
-void rbtree_print(rbtree t, compare_func show) {
+void rbtree_print(rbtree t) {
    node n = t->root;
-   rbtree_print_nodes(n, show);
+   print2DUtil(n, 0);
+   // rbtree_print_nodes(n, show);
 }
 
 

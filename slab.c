@@ -6,6 +6,8 @@
 #include "pagecache.h"
 #include "slabworker.h"
 
+extern int print;
+
 /*
  * A slab is a file containing 1 or more items of a given size.
  * The size of items is in slab->item_size.
@@ -142,6 +144,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->max = 0;
    s->key = key;
    s->seq = create_sequence;
+   s->imm = 0;
    /*
    // Read the first page and rebuild the index if the file contains data
    struct item_metadata *meta = read_item(s, 0);
@@ -173,13 +176,18 @@ struct slab* resize_slab(struct slab *s) {
    return s;
 }
 
+static int show_rbtree(void *key, void *value) {
+ printf("key: %lu\n", key);
+ return 0;
+}
+
 struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    struct item_metadata *meta = (struct item_metadata *)cb->item;
    char *item_key = &cb->item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
    uint64_t new_key = (s->min + s->max)/2;
 
-   if(s->key != new_key)
+   // if(s->key != new_key)
      tnt_node_update(s->key, new_key);
    printf("NNN: %lu, %lu // %lu-%lu\n", 
           (uint64_t)s->key, (uint64_t)new_key, 
@@ -190,7 +198,13 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    tnt_tree_add(cb, tnt_tree_create(), new_key-1);
    cb->slab = create_slab(s->ctx, get_worker(s), new_key+1, cb);
    tnt_tree_add(cb, tnt_tree_create(), new_key+1);
-   cb->slab =  tnt_tree_get((void*)key)->slab;
+   cb->slab = s;
+   // cb->slab =  tnt_tree_get((void*)key)->slab;
+   // printf("NNN4: %lu %lu // %lu-%lu\n", 
+   //        key, (uint64_t)cb->slab->key, 
+   //        cb->slab->min, cb->slab->max);
+   // tnt_print(show_rbtree);
+   // s->key = new_key;
    return cb->slab;
 }
 
@@ -216,7 +230,7 @@ void *read_item(struct slab *s, size_t idx) {
 void read_item_async_cb(struct slab_callback *callback) {
    char *disk_page = callback->lru_entry->page;
    off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
-   if(callback->cb)
+   if(callback->cb) 
       callback->cb(callback, &disk_page[in_page_offset]);
 }
 
@@ -234,8 +248,22 @@ void read_item_async(struct slab_callback *callback) {
 void update_item_async_cb2(struct slab_callback *callback) {
    char *disk_page = callback->lru_entry->page;
    off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
+
+
+   struct item_metadata *meta = (struct item_metadata *)callback->item;
+   char *item_key = &callback->item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+
+   void *item = &disk_page[in_page_offset];
+   struct item_metadata *meta2 = (struct item_metadata *)item;
+   char *item_key2 = &item[sizeof(*meta)];
+   uint64_t key2 = *(uint64_t*)item_key2;
+
    if(callback->cb)
       callback->cb(callback, &disk_page[in_page_offset]);
+   if(callback->cb_cb)
+      callback->cb_cb(callback, &disk_page[in_page_offset]);
+
 }
 
 void update_item_async_cb1(struct slab_callback *callback) {
@@ -248,6 +276,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
    off_t offset_in_page = item_in_page_offset(s, idx);
    struct item_metadata *old_meta = (void*)(&disk_page[offset_in_page]);
 
+   /* UPDATE도 ADD 취급이다.
    if(callback->action == UPDATE) {
       size_t new_key_size = meta->key_size;
       size_t old_key_size = old_meta->key_size;
@@ -260,6 +289,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
       if(memcmp(new_key, old_key, new_key_size))
          die("Updating an item, but key mismatch! Likely this is because 2 keys have the same prefix in the index. TODO: make the index more robust by detecting that 2 keys have the same prefix and transforming the prefix -> slab_idx to prefix -> [ { full key 1, slab_idx1 }, { full key 2, slab_idx2 } ]\n");
    }
+   */
 
    meta->rdt = get_rdt(s->ctx);
    if(meta->key_size == -1)
@@ -287,12 +317,16 @@ void add_item_async_cb1(struct slab_callback *callback) {
    struct slab *s = callback->slab;
 
    struct lru *lru_entry = callback->lru_entry;
+   if (callback->slab_idx != -1)
+      goto skip;
    if(lru_entry == NULL) { // no free page, append
       // TODO::JS::일단 아이템 사이즈 고정시킴
-      if((s->nb_items + 1024) > s->nb_max_items) {
-         close_and_create_slab(s, callback);
+      assert(s->last_item < s->nb_max_items);
+      if(s->last_item + 1 == s->nb_max_items) {
+         s = close_and_create_slab(s, callback);
       }
       callback->slab_idx = s->last_item;
+      // printf("%lu %lu\n", s->nb_items, s->nb_max_items);
       assert(s->last_item < s->nb_max_items);
       s->last_item++;
    } else { // reuse a free spot. Don't forget to add the linked tombstone in the freelist.
@@ -301,12 +335,65 @@ void add_item_async_cb1(struct slab_callback *callback) {
       add_son_in_freelist(callback->slab, callback->slab_idx, (void*)(&disk_page[in_page_offset]));
    }
    s->nb_items++;
+   // if (print)
+   //  printf("ADD ITEM (%lu, %lu)\n", s->key, callback->slab_idx);
 
+skip:
    update_item_async(callback);
 }
 
 void add_item_async(struct slab_callback *callback) {
    callback->io_cb = add_item_async_cb1;
+   get_free_item_idx(callback);
+}
+
+static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
+  struct slab *s = cb->slab;
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+
+   tnt_index_invalid(cb->item);
+   /*
+   if(tnt_index_invalid(cb->item) == 0)
+     printf("UPDATE NULL\n");
+   else
+     printf("UPDATE COMP\n");
+   */
+
+   memory_index_delete_utree(cb->slab->tree, item);
+   // printf("ADD %lu -> (%lu, %lu)\n", key, s->key, cb->slab_idx);
+   memory_index_add_utree(cb, item);
+
+   if (key < s->min) {
+      // printf("Min: %lu -> %lu\n", s->min, key);
+      s->min = key;
+   }
+   if (key > s->max) {
+      // printf("Max: %lu -> %lu\n", s->max, key);
+      s->max = key;
+   }
+   if (s->last_item == s->nb_max_items)
+      s->imm = 1;
+
+   if (cb->cb_cb == add_in_tree_for_update) {
+    // printf("CBCB\n");
+    free(cb->item);
+    free(cb);
+   }
+}
+
+void remove_and_add_item_async(struct slab_callback *callback) {
+   callback->io_cb = add_item_async_cb1;
+   if (callback->slab_idx == -1) {
+      // printf("UPDATE TREE\n");
+      if (!callback->cb)
+       callback->cb = add_in_tree_for_update;
+      else
+       callback->cb_cb = add_in_tree_for_update;
+   } 
+  // else
+  //     printf("KEEP TREE (%lu, %lu)\n", callback->slab->key, callback->slab_idx);
    get_free_item_idx(callback);
 }
 

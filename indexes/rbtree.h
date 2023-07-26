@@ -36,6 +36,7 @@ enum rbtree_node_color { RED, BLACK };
 typedef struct rbtree_node_t {
     void* key;
     tree_entry_t value;
+    unsigned char imm;
     struct rbtree_node_t* left;
     struct rbtree_node_t* right;
     struct rbtree_node_t* parent;
@@ -48,15 +49,30 @@ typedef struct rbtree_t {
     int nb_elements;
 } *rbtree;
 
+typedef struct queue_node_t {
+    struct rbtree_node_t *data;
+    struct queue_node_t *next;
+} queue_node;
+
+typedef struct rbtree_queue_t {
+    struct queue_node_t *front;
+    struct queue_node_t *rear;
+    int count; // 큐 안의 노드 개수  
+} rbtree_queue;
+
+
 typedef int (*compare_func)(void* left, void* right);
 int pointer_cmp(void* left, void* right);
 
 rbtree rbtree_create();
 tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare);
 tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare);
+tree_entry_t* rbtree_traverse_useq(rbtree t, int seq);
 void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare);
 void rbtree_delete(rbtree t, void* key, compare_func compare);
 void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare);
+
+void rbtree_print(rbtree t);
 
 struct rbtree_scan_tmp {
    struct rbtree_node_t *entries;

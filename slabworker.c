@@ -133,6 +133,10 @@ static struct slab *get_slab(struct slab_context *ctx, void *item) {
    uint64_t key = *(uint64_t*)item_key;
    struct tree_entry *tree = tnt_tree_get((void*)key);
    // printf("NNN: %lu\n", tree->key);
+   if (tree->slab->last_item == tree->slab->nb_max_items) {
+      printf("key: %lu\n", key);
+      tnt_print();
+   }
 
    if (!tree)
       die("Item is too big\n");
@@ -167,9 +171,9 @@ void *kv_read_sync(void *item) {
    struct slab_context *ctx = get_slab_context(item);
    struct slab *s = get_slab(ctx, item);
    // Warning, this is very unsafe, the lookup might not be performed in the worker context => race! We only use that during init.
-   index_entry_t *e = memory_index_lookup(ctx->worker_id, item);
+   index_entry_t *e = memory_index_lookup_utree(s->tree, item);
    if(e)
-      return read_item(s, e->slab_idx);
+      return read_item(s, GET_SIDX(e->slab_idx));
    else
       return NULL;
 }
@@ -228,9 +232,9 @@ again:
       add_time_in_payload(callback, 2);
 
       index_entry_t *e = NULL;
-      if(action != READ_NO_LOOKUP)
+      if(action != READ_NO_LOOKUP && action != UPDATE)
          // e = memory_index_lookup(ctx->worker_id, callback->item);
-         e = tnt_index_lookup(ctx->worker_id, callback->item);
+         e = tnt_index_lookup(callback->item);
 
       switch(action) {
          case READ_NO_LOOKUP:
@@ -243,7 +247,7 @@ again:
                callback->cb(callback, NULL);
             } else {
                callback->slab = e->slab;
-               callback->slab_idx = e->slab_idx;
+               callback->slab_idx = GET_SIDX(e->slab_idx);
                read_item_async(callback);
             }
             break;
@@ -257,6 +261,7 @@ again:
             }
             break;
          case UPDATE:
+            /*
             if(!e) {
                callback->slab = NULL;
                callback->slab_idx = -1;
@@ -265,8 +270,21 @@ again:
                callback->slab = e->slab;
                callback->slab_idx = e->slab_idx;
                assert(get_item_size(callback->item) <= e->slab->item_size); // Item grew, this is not supported currently!
+               remove_and_add_item_async(callback);
                update_item_async(callback);
             }
+            */
+            callback->slab = get_slab(ctx, callback->item);
+   struct item_metadata *meta = (struct item_metadata *)callback->item;
+   char *item_key = &callback->item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+            // printf("Update key: %lu\n", key);
+            // if (e && callback->slab == e->slab 
+            //     && !TEST_INVAL(e->slab_idx))
+            //   callback->slab_idx = GET_SIDX(e->slab_idx);
+            // else
+              callback->slab_idx = -1;
+            remove_and_add_item_async(callback);
             break;
          case ADD_OR_UPDATE:
             if(!e) {
@@ -277,7 +295,7 @@ again:
             } else {
                callback->action = UPDATE;
                callback->slab = e->slab;
-               callback->slab_idx = e->slab_idx;
+               callback->slab_idx = GET_SIDX(e->slab_idx);
                assert(get_item_size(callback->item) <= e->slab->item_size); // Item grew, this is not supported currently!
                update_item_async(callback);
             }
@@ -288,7 +306,7 @@ again:
                callback->cb(callback, NULL);
             } else {
                callback->slab = e->slab;
-               callback->slab_idx = e->slab_idx;
+               callback->slab_idx = GET_SIDX(e->slab_idx);
                memory_index_delete(ctx->worker_id, callback->item);
                remove_item_async(callback);
             }
@@ -317,7 +335,7 @@ again:
 static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
    struct item_metadata *new_meta = item;
    if(!memory_index_lookup(get_worker(cb->slab), item)) {
-      memory_index_add(cb, item);
+      memory_index_add_utree(cb, item);
    } else {
       /* Complex path -- item is already in the index, we should decide which one to keep based on rdt! */
       printf("#WARNING! Item is present twice in the database! Has the database crashed?\n");
@@ -327,7 +345,7 @@ static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
       if(old_meta->rdt < new_meta->rdt) {
          // TODO: the old spot should be added in the freelist
          btree_worker_delete(get_worker(cb->slab), old_meta);
-         memory_index_add(cb, item);
+         memory_index_add_utree(cb, item);
       }
 
    }
@@ -413,7 +431,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
 
    while(*(volatile int*)&nb_workers_ready != nb_workers) {
       NOP10();
-   }
+    }
 }
 
 size_t get_database_size(void) {

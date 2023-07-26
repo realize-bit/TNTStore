@@ -1,6 +1,7 @@
 #include "headers.h"
 
 int print = 0;
+extern int cache_hit;
 
 int main(int argc, char **argv) {
    int nb_disks, nb_workers_per_disk;
@@ -9,8 +10,8 @@ int main(int argc, char **argv) {
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
-      // .nb_items_in_db = 100000000LU,
       .nb_items_in_db = 100000000LU,
+      // .nb_items_in_db = 20000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
    };
@@ -46,22 +47,46 @@ int main(int argc, char **argv) {
    /* Add missing items if any */
    repopulate_db(&w);
    print = 1;
+   cache_hit = 0;
 
    /* Launch benchs */
    bench_t workload, workloads[] = {
       //ycsb_a_uniform, ycsb_b_uniform, ycsb_c_uniform,
       //ycsb_a_zipfian, ycsb_b_zipfian, ycsb_c_zipfian,
-      //ycsb_e_uniform, ycsb_e_zipfian, // Scans
+      // ycsb_e_uniform, ycsb_e_zipfian, // Scans
+      // ycsb_a_uniform, 
+      // ycsb_a_zipfian,
+      // ycsb_a_zipfian,
       ycsb_c_uniform, ycsb_c_zipfian,
    };
+
    foreach(workload, workloads) {
       if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
          w.nb_requests = 2000000LU; // requests for YCSB E are longer (scans) so we do less
       } else {
          w.nb_requests = 100000000LU;
       }
+      // w.nb_requests = 20000000LU;
       //w.nb_requests = 100LU;
       run_workload(&w, workload);
+      printf("lookup hit: %d\n", cache_hit);
+      cache_hit = 0;
+   }
+      make_fsst();
+      sleep(5);
+      cache_hit = 0;
+
+  foreach(workload, workloads) {
+      if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
+         w.nb_requests = 2000000LU; // requests for YCSB E are longer (scans) so we do less
+      } else {
+         w.nb_requests = 100000000LU;
+      }
+      // w.nb_requests = 20000000LU;
+      //w.nb_requests = 100LU;
+      run_workload(&w, workload);
+      printf("lookup hit: %d\n", cache_hit);
+      cache_hit = 0;
    }
    return 0;
 }

@@ -6,12 +6,17 @@
 #define INDEX_TYPE "btree"
 #define memory_index_init btree_init
 #define memory_index_add btree_index_add
+#define memory_index_add_utree btree_index_add_utree
 #define memory_index_lookup btree_worker_lookup
+#define memory_index_lookup_utree btree_worker_lookup_utree
 #define memory_index_delete btree_worker_delete
+#define memory_index_delete_utree btree_worker_delete_utree
 #define memory_index_scan btree_init_scan
 
 void btree_init(void);
 struct index_entry *btree_worker_lookup(int worker_id, void *item);
+index_entry_t *btree_worker_lookup_utree(btree_t *tree, void *item);
+int btree_worker_invalid_utree(btree_t *tree, void *item);
 void btree_worker_delete(int worker_id, void *item);
 struct index_scan btree_init_scan(void *item, size_t scan_size);
 void btree_index_add(struct slab_callback *cb, void *item);
@@ -23,6 +28,7 @@ btree_t* btree_tnt_create(void);
 
 #define tnt_tree_create btree_tnt_create
 #define tnt_tree_get rbtree_worker_get
+#define tnt_tree_get_useq rbtree_worker_get_useq
 #define tnt_node_update rbtree_node_update
 
 #define tnt_tree_lookup rbtree_worker_lookup
@@ -31,6 +37,9 @@ btree_t* btree_tnt_create(void);
 #define tnt_tree_scan rbtree_init_scan
 
 #define tnt_index_lookup rbtree_tnt_lookup
+#define tnt_index_invalid rbtree_tnt_invalid
+
+#define tnt_print rbtree_worker_print
 
 void rbtree_init(void);
 struct tree_entry *rbtree_worker_lookup(int worker_id, void *item);
@@ -39,9 +48,11 @@ struct tree_scan rbtree_init_scan(void *item, size_t scan_size);
 
 void rbtree_tree_add(struct slab_callback *cb, void *item, uint64_t tmp_key);
 struct tree_entry *rbtree_worker_get(void *item);
+tree_entry_t *rbtree_worker_get_useq(int seq);
 void rbtree_node_update(uint64_t old_key, uint64_t new_key);
 
-index_entry_t *rbtree_tnt_lookup(int worker_id, void *item);
+index_entry_t *rbtree_tnt_lookup(void *item);
+void rbtree_worker_print(void);
 
 
 #endif

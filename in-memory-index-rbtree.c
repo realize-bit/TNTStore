@@ -28,10 +28,11 @@ void rbtree_worker_delete(int worker_id, void *item) {
 
 void rbtree_tree_add(struct slab_callback *cb, void *item, uint64_t tmp_key) {
    tree_entry_t e = {
+         .seq = cb->slab->seq,
          .key = tmp_key,
-         .tree = item,
          .slab = cb->slab,
    };
+   cb->slab->tree = item;
    rbtree_worker_insert(0, NULL, &e);
 }
 
@@ -39,18 +40,23 @@ tree_entry_t *rbtree_worker_get(void *key) {
    return rbtree_closest_lookup(trees_location[0], key, pointer_cmp);
 }
 
+tree_entry_t *rbtree_worker_get_useq(int seq) {
+   return rbtree_traverse_useq(trees_location[0], seq);
+}
+
 void rbtree_node_update(uint64_t old_key, uint64_t new_key) {
   rbtree_n_update(trees_location[0], (void*)old_key, (void*)new_key, pointer_cmp);
 }
 
-index_entry_t *rbtree_tnt_lookup(int worker_id, void *item) {
+index_entry_t *rbtree_tnt_lookup(void *item) {
    rbtree t = trees_location[0];
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
    rbtree_node n = t->root;
-   index_entry_t *e = NULL;
+   index_entry_t *e = NULL, *tmp = NULL;
    int count = 1;
+   uint64_t cur_seq = 0;
 
    uint64_t elapsed;
    struct timeval st, et;
@@ -62,17 +68,23 @@ index_entry_t *rbtree_tnt_lookup(int worker_id, void *item) {
    while (n != NULL) {
       struct slab *s = n->value.slab;
       int comp_result;
-      if (key >= s->min && key <= s->max) {
+      if (key >= s->min && key <= s->max && s->seq >= cur_seq) {
          // printf("LLL %lu: %lu, %lu // %lu-%lu\n", s->seq,
              // (uint64_t)s->key, key, s->min, s->max);
          count++;
-         e = btree_worker_lookup(worker_id, item);
-         // if (e) {
-           //if (print) {
+         tmp = btree_worker_lookup_utree(s->tree, item);
+         // if (print)
+          // printf("(%s,%d) [%6luus] %d CHECK \n", __FUNCTION__ , __LINE__, elapsed, count);
+         if (tmp) {
+          e = tmp;
+          cur_seq = s->seq;
+         }
+         // if (tmp) {
+           // if (print) {
            //  gettimeofday(&et,NULL);
-           //  elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
-           //  printf("(%s,%d) [%6luus] %d FIND \n", __FUNCTION__ , __LINE__, elapsed, count);
-           //}
+            // elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
+            // printf("(%s,%d) [%6luus] %d FIND \n", __FUNCTION__ , __LINE__, elapsed, count);
+           // }
            // return e; 
          // }
       }
@@ -88,15 +100,49 @@ index_entry_t *rbtree_tnt_lookup(int worker_id, void *item) {
          n = n->right;
       }
    }
-  // if (print) {
+  // if (print && e) {
   //   gettimeofday(&et,NULL);
   //   elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec) + 1;
-  //   printf("(%s,%d) [%6luus] %d NONE \n", __FUNCTION__ , __LINE__, elapsed, count);
+    // printf("(%s,%d) [%6luus] %d NONE \n", __FUNCTION__ , __LINE__, elapsed, count);
   // }
    if (e)
       return e;
    return NULL;
    // return lookup_tnt_index(trees_location[0], (void*)key, pointer_cmp);
+}
+
+int rbtree_tnt_invalid(void *item) {
+   rbtree t = trees_location[0];
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+   rbtree_node n = t->root;
+   index_entry_t *e = NULL, *tmp = NULL;
+   int count = 0;
+
+   while (n != NULL) {
+      struct slab *s = n->value.slab;
+      int comp_result;
+      if (key >= s->min && key <= s->max) {
+         if(btree_worker_invalid_utree(s->tree, item)) {
+            s->nb_items--;
+            count++;
+         }
+      }
+      comp_result = pointer_cmp((void*)key, n->key);
+      if (comp_result <= 0) {
+         n = n->left;
+      } else {
+         assert(comp_result > 0);
+         n = n->right;
+      }
+   }
+
+   return count;
+}
+
+void rbtree_worker_print(void) {
+  rbtree_print(trees_location[0]);
 }
 
 /*

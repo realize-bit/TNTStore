@@ -26,6 +26,8 @@
 /*
  * Non asynchronous calls to ease some things
  */
+int cache_hit = 0;
+
 static __thread char *disk_data;
 void *safe_pread(int fd, off_t offset) {
    if(!disk_data)
@@ -146,6 +148,29 @@ void do_io(void) {
 static uint64_t get_hash_for_page(int fd, uint64_t page_num) {
    return (((uint64_t)fd)<<40LU)+page_num; // Works for files less than 40EB
 }
+char *no_read_page_async(struct slab_callback *callback) {
+   int alread_used;
+   struct lru *lru_entry;
+   void *disk_page;
+   uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
+   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
+
+   alread_used = get_page(get_pagecache(callback->slab->ctx), hash, &disk_page, &lru_entry);
+   lru_entry->contains_data = 1;
+   callback->lru_entry = lru_entry;
+
+   if(alread_used) { // Somebody else is already prefetching the same page!
+      struct linked_callbacks *linked_cb = malloc(sizeof(*linked_cb));
+      __sync_add_and_fetch(&cache_hit, 1);
+      linked_cb->callback = callback;
+      linked_cb->next = ctx->linked_callbacks;
+      ctx->linked_callbacks = linked_cb; // link our callback
+      return NULL;
+   }
+   callback->io_cb(callback);       // call the callback directly
+   return disk_page;
+}
 
 /* Enqueue a request to read a page */
 char *read_page_async(struct slab_callback *callback) {
@@ -159,12 +184,14 @@ char *read_page_async(struct slab_callback *callback) {
    alread_used = get_page(get_pagecache(callback->slab->ctx), hash, &disk_page, &lru_entry);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
+      __sync_add_and_fetch(&cache_hit, 1);
       callback->io_cb(callback);       // call the callback directly
       return disk_page;
    }
 
    if(alread_used) { // Somebody else is already prefetching the same page!
       struct linked_callbacks *linked_cb = malloc(sizeof(*linked_cb));
+      __sync_add_and_fetch(&cache_hit, 1);
       linked_cb->callback = callback;
       linked_cb->next = ctx->linked_callbacks;
       ctx->linked_callbacks = linked_cb; // link our callback

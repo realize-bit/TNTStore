@@ -6,6 +6,17 @@ using namespace btree;
 
 extern "C"
 {
+  static inline void set_inval(size_t *addr)
+  {
+    asm("btsl %1,%0" : "+m" (*(size_t *)addr) : "Ir" (63));
+  }
+  static inline unsigned char test_inval(size_t *addr)
+  {
+    unsigned char v;
+    const size_t *p = addr;
+    asm("btl %2,%1; setc %0" : "=qm" (v) : "m" (*p), "Ir" (63));
+    return v;
+  }
    btree_t *btree_create() {
       btree_map<uint64_t, struct index_entry> *b = new btree_map<uint64_t, struct index_entry>();
       return b;
@@ -20,6 +31,22 @@ extern "C"
       if(i != b->end()) {
          *e = i->second;
          return 1;
+      } else {
+         return 0;
+      }
+   }
+   int btree_set_invalid(btree_t *t, unsigned char* k, size_t len) {
+      uint64_t hash = *(uint64_t*)k;
+      btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
+      auto i = b->find(hash);
+      if(i != b->end()) {
+         if (!test_inval(&i->second.slab_idx)) {
+          // printf("SET INVAL %lu (s, %lu)\n", hash, i->second.slab_idx);
+          set_inval(&i->second.slab_idx);
+          return 1;
+         }
+         // printf("Already INVAL %lu(s, %lu)\n", hash, i->second.slab_idx);
+         return 0;
       } else {
          return 0;
       }
@@ -65,6 +92,25 @@ extern "C"
          i++;
       }
       return;
+   }
+   int btree_forall_invalid(btree_t *t, void (*cb)(void *data)) {
+      btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
+      int count = 0;
+      auto i = b->begin();
+      while(i != b->end()) {
+         if(!test_inval(&i->second.slab_idx)) {
+          // 여기서 inval을 하면 더 빨리 tree free 가능
+          // 문제가 생기느냐? tree가 free되는 순간이 온다면
+          // 트리가 더이상 필요하지 않을 것 따라서 문제 없음
+          set_inval(&i->second.slab_idx);
+          cb((void *)&i->second);
+          count++;
+         }
+         // else
+          // printf("INVAL FSST: %lu\n", i->first);
+         i++;
+      }
+      return count;
    }
 
 

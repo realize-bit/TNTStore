@@ -37,4 +37,6 @@
 
 #include "workload-common.h"
 
+#include "fsst.h"
+
 #endif
