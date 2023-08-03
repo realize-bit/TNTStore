@@ -53,6 +53,7 @@ static void _launch_ycsb(int test, int nb_requests, int zipfian) {
 static void _launch_ycsb_e(int test, int nb_requests, int zipfian) {
    declare_periodic_count;
    random_gen_t rand_next = zipfian?zipf_next:uniform_next;
+   /*
    for(size_t i = 0; i < nb_requests; i++) {
       if(random_get_put(test)) { // In this test we update with a given probability
          struct slab_callback *cb = bench_cb();
@@ -69,6 +70,46 @@ static void _launch_ycsb_e(int test, int nb_requests, int zipfian) {
          }
          free(scan_res.hashes);
          free(scan_res.entries);
+      }
+      periodic_count(1000, "YCSB Load Injector (scans) (%lu%%)", i*100LU/nb_requests);
+   }
+  */
+  for(size_t i = 0; i < nb_requests; i++) {
+      if(random_get_put(test)) { // In this test we update with a given probability
+         struct slab_callback *cb = bench_cb();
+         cb->item = _create_unique_item_ycsb(rand_next());
+         kv_update_async(cb);
+      } else {  // or we scan
+         // char *item = _create_unique_item_ycsb(rand_next());
+         uint64_t key = rand_next();
+         int count = uniform_next()%99+1;
+         // tree_scan_res_t scan_res = kv_init_scan(item, uniform_next()%99+1);
+         // free(item);
+         // for(size_t j = 0; j < scan_res.nb_entries; j++) {
+         // printf("key: %lu, count: %d\n", key, count);
+         for(size_t j = 0; j < count; j++) {
+            struct slab_callback *cb = bench_cb();
+            index_entry_t *e = NULL;
+
+            cb->item = _create_unique_item_ycsb(key + j);
+
+            e = tnt_index_lookup(cb->item);
+            if (!e) {
+              // printf("SCAN CONT\n");
+              free(cb->item);
+              free(cb);
+              continue;
+            }
+            
+            // printf("(%d, %lu) ", e->slab->fd, GET_SIDX(e->slab_idx));
+
+            kv_read_async_no_lookup(cb, e->slab, GET_SIDX(e->slab_idx));
+            // kv_read_async(cb);
+            // kv_read_async_no_lookup(cb, scan_res.entries[j].slab, scan_res.entries[j].slab_idx);
+         }
+         // printf("\n");
+         // free(scan_res.hashes);
+         // free(scan_res.entries);
       }
       periodic_count(1000, "YCSB Load Injector (scans) (%lu%%)", i*100LU/nb_requests);
    }

@@ -393,8 +393,8 @@ void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
       }
       inserted_node->parent = n;
    }
-   insert_case1(t, inserted_node);
-   verify_properties(t);
+   // insert_case1(t, inserted_node);
+   // verify_properties(t);
 }
 
 void insert_case1(rbtree t, node n) {

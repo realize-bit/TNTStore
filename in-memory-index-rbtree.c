@@ -70,7 +70,9 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
       struct slab *s = n->value.slab;
       int comp_result;
       // if (key >= s->min && key <= s->max && s->seq >= cur_seq) {
-      if (filter_contain(s->filter, (unsigned char *)&key)) {
+      // TODO::JS::나중에 필터를 없애버리고, 없으면 아예 찾지 않도록 수정해야함
+      if (s->min != -1 && 
+        filter_contain(s->filter, (unsigned char *)&key)) {
          count++;
         // printf("(%s,%d) FIND in Filter %d\n", __FUNCTION__ , __LINE__, count);
       // } else
@@ -116,6 +118,8 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
     // printf("(%s,%d) %d \n", __FUNCTION__ , __LINE__, count);
    if (e)
       return e;
+   // if (print)
+    // printf("CANT BE FOUND %lu\n", key);
    return NULL;
    // return lookup_tnt_index(trees_location[0], (void*)key, pointer_cmp);
 }
@@ -132,7 +136,8 @@ int rbtree_tnt_invalid(void *item) {
    while (n != NULL) {
       struct slab *s = n->value.slab;
       int comp_result;
-      if (key >= s->min && key <= s->max) {
+      if (s->min != -1 && 
+        filter_contain(s->filter, (unsigned char *)&key)) {
          if(btree_worker_invalid_utree(s->tree, item)) {
             s->nb_items--;
             count++;

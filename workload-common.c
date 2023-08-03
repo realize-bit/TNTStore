@@ -267,6 +267,7 @@ void* do_workload_thread(void *pdata) {
 void run_workload(struct workload *w, bench_t b) {
    struct thread_data *pdata = malloc(w->nb_load_injectors*sizeof(*pdata));
 
+   printf("START\n");
    w->nb_requests_per_thread = w->nb_requests / w->nb_load_injectors;
    pthread_barrier_init(&barrier, NULL, w->nb_load_injectors);
 
@@ -287,6 +288,7 @@ void run_workload(struct workload *w, bench_t b) {
       for(int i = 1; i < w->nb_load_injectors; i++)
          pthread_join(threads[i], NULL);
       free(threads);
+      printf("END\n");
    } stop_timer("%s - %lu requests (%lu req/s)", w->api->name(b), w->nb_requests, w->nb_requests*1000000/elapsed);
    print_stats();
 

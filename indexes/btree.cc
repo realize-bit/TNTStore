@@ -102,7 +102,7 @@ extern "C"
           // 여기서 inval을 하면 더 빨리 tree free 가능
           // 문제가 생기느냐? tree가 free되는 순간이 온다면
           // 트리가 더이상 필요하지 않을 것 따라서 문제 없음
-          set_inval(&i->second.slab_idx);
+          // set_inval(&i->second.slab_idx);
           cb((void *)&i->second);
           count++;
          }

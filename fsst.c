@@ -34,7 +34,7 @@ void skip_or_invalidate_index(void *e) {
   // if (TEST_INVAL(i->slab_idx))
     // return;
 
-   i->slab->nb_items--;
+   // i->slab->nb_items--;
    cb = malloc(sizeof(*cb));
    cb->cb = NULL;
    cb->cb_cb = check_and_remove_tree;
