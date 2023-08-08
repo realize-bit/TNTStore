@@ -30,6 +30,13 @@ index_entry_t *btree_worker_lookup_utree(btree_t *tree, void *item) {
    else
       return NULL;
 }
+index_entry_t *btree_worker_lookup_ukey(btree_t *tree, uint64_t key) {
+   int res = btree_find(tree, (unsigned char*)&key, sizeof(key), &tmp_entry);
+   if(res)
+      return &tmp_entry;
+   else
+      return NULL;
+}
 int btree_worker_invalid_utree(btree_t *tree, void *item) {
    uint64_t hash = get_prefix_for_item(item);
    return btree_set_invalid(tree, (unsigned char*)&hash, sizeof(hash));

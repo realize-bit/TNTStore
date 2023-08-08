@@ -5,6 +5,8 @@ static char *vict_file_data = NULL;
 
 static void check_and_remove_tree (struct slab_callback *cb, void *item) {
   struct slab *s = cb->fsst_slab;
+  free(cb->item);
+  free(cb);
 
   if (s->nb_items || (s->max == 0 && s->min == -1)) {
     // printf("fsst %lu %lu %lu\n", s->nb_items, s->min, s->max);
@@ -12,8 +14,6 @@ static void check_and_remove_tree (struct slab_callback *cb, void *item) {
   }
 
   //TODO::JS Remove file
-  free(cb->item);
-  free(cb);
   printf("free %lu %lu %lu %lu\n", s->min, s->max, s->seq, s->nb_items);
   close(s->fd);
   s->min = -1;
@@ -70,15 +70,14 @@ tree_entry_t *pick_garbage_node() {
 int make_fsst(void) {
   int count;
   tree_entry_t *victim = NULL;
-
-  char *msg;
+  cur = 0;
 
   do {
       victim = pick_garbage_node();
       while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
         victim = pick_garbage_node();
 
-      if (!victim || cur > 1000)
+      if (!victim || cur > 200)
         break;
 
       if (!vict_file_data)

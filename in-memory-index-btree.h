@@ -16,6 +16,7 @@
 void btree_init(void);
 struct index_entry *btree_worker_lookup(int worker_id, void *item);
 index_entry_t *btree_worker_lookup_utree(btree_t *tree, void *item);
+index_entry_t *btree_worker_lookup_ukey(btree_t *tree, uint64_t key);
 int btree_worker_invalid_utree(btree_t *tree, void *item);
 void btree_worker_delete(int worker_id, void *item);
 struct index_scan btree_init_scan(void *item, size_t scan_size);
@@ -37,6 +38,7 @@ btree_t* btree_tnt_create(void);
 #define tnt_tree_scan rbtree_init_scan
 
 #define tnt_index_lookup rbtree_tnt_lookup
+#define tnt_scan rbtree_tnt_scan
 #define tnt_index_invalid rbtree_tnt_invalid
 
 #define tnt_print rbtree_worker_print
@@ -52,6 +54,7 @@ tree_entry_t *rbtree_worker_get_useq(int seq);
 void rbtree_node_update(uint64_t old_key, uint64_t new_key);
 
 index_entry_t *rbtree_tnt_lookup(void *item);
+struct index_scan rbtree_tnt_scan(void *item, uint64_t size);
 void rbtree_worker_print(void);
 
 #include "indexes/filter.h"

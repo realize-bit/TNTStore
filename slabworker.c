@@ -183,9 +183,10 @@ void kv_read_async(struct slab_callback *callback) {
    return enqueue_slab_callback(ctx, READ, callback);
 }
 
-void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx) {
+void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx, size_t count) {
    callback->slab = s;
    callback->slab_idx = slab_idx;
+   callback->count = count;
    return enqueue_slab_callback(s->ctx, READ_NO_LOOKUP, callback);
 }
 
@@ -239,6 +240,9 @@ again:
 
       switch(action) {
          case READ_NO_LOOKUP:
+            //slab idx에 카운트 담아옴
+            // tnt_scan(callback->item, callback->count);
+            // scan_item_async(callback);
             read_item_async(callback);
             break;
          case READ:
@@ -364,6 +368,7 @@ static void *worker_slab_init(void *pdata) {
    /* Create the pagecache for the worker */
    ctx->pagecache = calloc(1, sizeof(*ctx->pagecache));
    page_cache_init(ctx->pagecache);
+   // page_cache_init(ctx->scancache);
 
    /* Initialize the async io for the worker */
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
@@ -451,4 +456,32 @@ size_t get_database_size(void) {
    */
 
    return size;
+}
+
+void flush_batched_load(void) {
+  int seq = 0;
+  tree_entry_t *victim = NULL;
+  struct slab *s = NULL;
+
+  do {
+      victim = pick_garbage_node();
+      while (victim && victim->slab->imm == 1)
+        victim = pick_garbage_node();
+
+      if (!victim)
+        break;
+
+      s = victim->slab;
+      if (s->nb_batched != 0) {
+        for (int i=0; i < s->nb_batched; i++) {
+      // printf("FLUSH: %d\n", s->nb_batched);
+          kv_add_async(s->batched_callbacks[i]);
+          // update_item_async(s->batched_callbacks[i]);
+          s->batched_callbacks[i] = NULL;
+        }
+        s->nb_batched = 0;
+      }
+      free(s->batched_callbacks);
+
+  } while (victim);
 }

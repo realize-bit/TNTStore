@@ -9,6 +9,7 @@ void *safe_pread(int fd, off_t offset);
 typedef void (io_cb_t)(struct slab_callback *);
 char *no_read_page_async(struct slab_callback *cb);
 char *read_page_async(struct slab_callback *cb);
+char *read_file_async(struct slab_callback *cb);
 char *write_page_async(struct slab_callback *cb);
 
 int io_pending(struct io_context *ctx);

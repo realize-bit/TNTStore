@@ -88,5 +88,6 @@ struct pagecache {
 
 void page_cache_init(struct pagecache *p);
 int get_page(struct pagecache *p, uint64_t hash, void **page, struct lru **lru);
+int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size, void **page, struct lru **lru);
 
 #endif

@@ -148,6 +148,11 @@ void do_io(void) {
 static uint64_t get_hash_for_page(int fd, uint64_t page_num) {
    return (((uint64_t)fd)<<40LU)+page_num; // Works for files less than 40EB
 }
+
+static uint64_t get_hash_for_file(int fd) {
+   return (((uint64_t)fd)<<40LU)+((uint64_t)1<<39LU); // Works for files less than 40EB
+}
+
 char *no_read_page_async(struct slab_callback *callback) {
    int alread_used;
    struct lru *lru_entry;
@@ -207,6 +212,49 @@ char *read_page_async(struct slab_callback *callback) {
    _iocb->aio_data = (uint64_t)callback;
    _iocb->aio_offset = page_num * PAGE_SIZE;
    _iocb->aio_nbytes = PAGE_SIZE;
+   if(ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
+      die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n", ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
+   ctx->sent_io++;
+
+   return NULL;
+}
+
+char *read_file_async(struct slab_callback *callback) {
+   int alread_used;
+   struct lru *lru_entry;
+   void *disk_page;
+   uint64_t start_page = item_page_num(callback->slab, callback->slab_idx);
+   uint64_t end_page = item_page_num(callback->slab, callback->slab_idx+callback->count-1);
+   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   uint64_t hash = get_hash_for_page(callback->slab->fd, start_page);
+   uint64_t size = end_page - start_page + 1;
+
+   alread_used = get_page_for_file(get_pagecache(callback->slab->ctx), hash, size, &disk_page, &lru_entry);
+   callback->lru_entry = lru_entry;
+   if(lru_entry->contains_data) {   // content is cached already
+      __sync_add_and_fetch(&cache_hit, 1);
+      callback->io_cb(callback);       // call the callback directly
+      return disk_page;
+   }
+
+   if(alread_used) { // Somebody else is already prefetching the same page!
+      struct linked_callbacks *linked_cb = malloc(sizeof(*linked_cb));
+      __sync_add_and_fetch(&cache_hit, 1);
+      linked_cb->callback = callback;
+      linked_cb->next = ctx->linked_callbacks;
+      ctx->linked_callbacks = linked_cb; // link our callback
+      return NULL;
+   }
+
+   int buffer_idx = ctx->sent_io % ctx->max_pending_io;
+   struct iocb *_iocb = &ctx->iocb[buffer_idx];
+   memset(_iocb, 0, sizeof(*_iocb));
+   _iocb->aio_fildes = callback->slab->fd;
+   _iocb->aio_lio_opcode = IOCB_CMD_PREAD;
+   _iocb->aio_buf = (uint64_t)disk_page;
+   _iocb->aio_data = (uint64_t)callback;
+   _iocb->aio_offset = start_page * PAGE_SIZE;
+   _iocb->aio_nbytes = size * PAGE_SIZE;
    if(ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
       die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n", ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
    ctx->sent_io++;
@@ -304,7 +352,7 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       for(size_t i = 0; i < ret; i++) {
          struct iocb *cb = (void*)ctx->events[i].obj;
          struct slab_callback *callback = (void*)cb->aio_data;
-         assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
+         // assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
          callback->lru_entry->contains_data = 1;
          //callback->lru_entry->dirty = 0; // done before
          callback->io_cb(callback);

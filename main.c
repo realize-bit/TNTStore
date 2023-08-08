@@ -1,6 +1,7 @@
 #include "headers.h"
 
 int print = 0;
+int load = 1;
 extern int cache_hit;
 
 int main(int argc, char **argv) {
@@ -10,7 +11,7 @@ int main(int argc, char **argv) {
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
-      .nb_items_in_db = 1000000LU,
+      .nb_items_in_db = 100000000LU,
       // .nb_items_in_db = 1000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
@@ -46,6 +47,10 @@ int main(int argc, char **argv) {
 
    /* Add missing items if any */
    repopulate_db(&w);
+   load = 0;
+
+   flush_batched_load();
+
    print = 1;
    cache_hit = 0;
 
@@ -57,10 +62,11 @@ int main(int argc, char **argv) {
       ycsb_e_uniform, ycsb_e_zipfian,
       // ycsb_c_uniform, ycsb_c_zipfian,
    };
+
       sleep(5);
-      make_fsst();
-      sleep(5);
-      cache_hit = 0;
+      // make_fsst();
+      // sleep(5);
+      // cache_hit = 0;
 
    foreach(workload, workloads) {
       if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
@@ -69,7 +75,7 @@ int main(int argc, char **argv) {
          w.nb_requests = 100000000LU;
       }
       // w.nb_requests = 20000000LU;
-      w.nb_requests = 100000LU;
+      // w.nb_requests = 1000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;

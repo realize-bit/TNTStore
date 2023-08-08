@@ -10,6 +10,8 @@ struct slab_callback;
 /* Header of a slab -- shouldn't contain any pointer as it is persisted on disk. */
 struct slab {
    struct slab_context *ctx;
+   struct slab_callback **batched_callbacks;
+
    uint64_t key;
    uint64_t min;
    uint64_t max;
@@ -17,6 +19,9 @@ struct slab {
    void *tree;
    void *filter;
    unsigned char imm;
+
+   unsigned char batch_idx;
+   unsigned char nb_batched;
 
    //TODO::JS::구조체 수정
    size_t item_size;
@@ -51,6 +56,7 @@ struct slab_callback {
       uint64_t slab_idx;
       uint64_t tmp_page_number; // when we add a new item we don't always know it's idx directly, sometimes we just know which page it will be placed on
    };
+   uint64_t count;
    struct lru *lru_entry;
    io_cb_t *io_cb;
    struct slab *fsst_slab;
@@ -61,6 +67,7 @@ struct slab* resize_slab(struct slab *s);
 
 void *read_item(struct slab *s, size_t idx);
 void read_item_async(struct slab_callback *callback);
+void scan_item_async(struct slab_callback *callback);
 void add_item_async(struct slab_callback *callback);
 void update_item_async(struct slab_callback *callback);
 void remove_item_async(struct slab_callback *callback);

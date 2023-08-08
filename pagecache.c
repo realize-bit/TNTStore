@@ -98,6 +98,55 @@ int get_page(struct pagecache *p, uint64_t hash, void **page, struct lru **lru) 
    } else {
       lru_entry = p->oldest_page;
       dst = p->oldest_page->page;
+      // printf("REPLACE PAGE %lu %lu\n", lru_entry->hash, hash);
+
+      tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);
+
+      lru_entry->hash = hash;
+      lru_entry->page = dst;
+      bump_page_in_lru(p, lru_entry, hash);
+   }
+
+   // Remember that the page cache now stores this hash
+   tree_insert(p->hash_to_page, hash, old_entry, dst, lru_entry);
+
+   lru_entry->contains_data = 0;
+   lru_entry->dirty = 0; // should already be equal to 0, but we never know
+   *page = dst;
+   *lru = lru_entry;
+
+   return 0;
+}
+
+int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size, void **page, struct lru **lru) {
+   void *dst;
+   struct lru *lru_entry;
+   maybe_unused pagecache_entry_t tmp_entry;
+   maybe_unused pagecache_entry_t *old_entry = NULL;
+
+   // Is the page already cached?
+   pagecache_entry_t *e = tree_lookup(p->hash_to_page, hash);
+   if(e) {
+      dst = e->page;
+      lru_entry = e->lru;
+      if(lru_entry->hash != hash)
+         die("LRU wierdness %lu vs %lu\n", lru_entry->hash, hash);
+      bump_page_in_lru(p, lru_entry, hash);
+      *page = dst;
+      *lru = lru_entry;
+      return 1;
+   }
+
+
+   // Otherwise allocate a new page, either a free one, or reuse the oldest
+   if(p->used_page_size < MAX_PAGE_CACHE/get_nb_workers()) {
+      dst = &p->cached_data[PAGE_SIZE*p->used_page_size];
+      lru_entry = add_page_in_lru(p, dst, hash);
+      p->used_page_size+=16384;
+   } else {
+      lru_entry = p->oldest_page;
+      dst = p->oldest_page->page;
+      // printf("REPLACE FILE %lu %lu\n", lru_entry->hash, hash);
 
       tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);
 

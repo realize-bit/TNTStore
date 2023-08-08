@@ -7,6 +7,7 @@
 #include "slabworker.h"
 
 extern int print;
+extern int load;
 
 /*
  * A slab is a file containing 1 or more items of a given size.
@@ -145,6 +146,11 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->key = key;
    s->seq = create_sequence;
    s->imm = 0;
+
+   if (load)
+    s->batched_callbacks = calloc(32, sizeof(*s->batched_callbacks));
+   s->batch_idx = 0;
+   s->nb_batched = 0;
    /*
    // Read the first page and rebuild the index if the file contains data
    struct item_metadata *meta = read_item(s, 0);
@@ -194,6 +200,15 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
           s->min, s->max);
    s->key = new_key;
 
+   // if (s->nb_batched != 0) {
+   //   printf("Possible? %d\n", s->nb_batched);
+   //   for (int i=0; i < s->nb_batched; i++) {
+   //     update_item_async(s->batched_callbacks[i]);
+   //     s->batched_callbacks[i] = NULL;
+   //   }
+   //   s->nb_batched = 0;
+   // }
+
    cb->slab = create_slab(s->ctx, get_worker(s), new_key-1, cb);
    tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key-1);
    cb->slab = create_slab(s->ctx, get_worker(s), new_key+1, cb);
@@ -237,6 +252,11 @@ void read_item_async_cb(struct slab_callback *callback) {
 void read_item_async(struct slab_callback *callback) {
    callback->io_cb = read_item_async_cb;
    read_page_async(callback);
+}
+
+void scan_item_async(struct slab_callback *callback) {
+   callback->io_cb = read_item_async_cb;
+   read_file_async(callback);
 }
 
 /*
@@ -335,6 +355,22 @@ void add_item_async_cb1(struct slab_callback *callback) {
       add_son_in_freelist(callback->slab, callback->slab_idx, (void*)(&disk_page[in_page_offset]));
    }
    s->nb_items++;
+   
+   //JS::그냥 실험 빨리빨리 해보기 위해 로딩 성능 높여주려고 임의로 추가
+   if (load) {
+     s->batched_callbacks[s->nb_batched++] = callback;
+
+     if (s->nb_batched == 32) {
+      for (int i=0; i<32; i++) {
+        update_item_async(s->batched_callbacks[i]);
+        s->batched_callbacks[i] = NULL;
+      }
+      s->nb_batched = 0;
+      if (s->last_item == s->nb_max_items)
+        free(s->batched_callbacks);
+     }
+     return;
+   }
    // if (print)
    //  printf("ADD ITEM (%lu, %lu)\n", s->key, callback->slab_idx);
 

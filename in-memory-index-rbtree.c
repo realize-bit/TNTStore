@@ -124,6 +124,60 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
    // return lookup_tnt_index(trees_location[0], (void*)key, pointer_cmp);
 }
 
+tree_scan_res_t rbtree_tnt_scan(void *item, uint64_t size) {
+   struct index_scan scan_res;
+   rbtree t = trees_location[0];
+
+   struct item_metadata *meta = (struct item_metadata *)item;
+   char *item_key = &item[sizeof(*meta)];
+   uint64_t root_key = *(uint64_t*)item_key;
+
+   int count = 0;
+
+   scan_res.entries = malloc(size * sizeof(*scan_res.entries));
+   scan_res.hashes = malloc(size * sizeof(*scan_res.hashes));
+   scan_res.nb_entries = 0;
+   // TODO::JS:: 나중에 BTREE의 스캔 구조를 이용하도록 수정
+   // 지금은 그냥 무조건 하나씩 찾음
+   while (count < size) {
+     rbtree_node n = t->root;
+     index_entry_t *e = NULL, *tmp = NULL;
+     uint64_t key = root_key + count;
+     while (n != NULL) {
+        struct slab *s = n->value.slab;
+        int comp_result;
+        if (s->min != -1 && 
+          filter_contain(s->filter, (unsigned char *)&key)) {
+           tmp = btree_worker_lookup_ukey(s->tree, key);
+           if (tmp) {
+            e = tmp;
+           } 
+        }
+
+        comp_result = pointer_cmp((void*)key, n->key);
+
+        if (comp_result <= 0) {
+           n = n->left;
+        } else {
+           assert(comp_result > 0);
+           n = n->right;
+        }
+     }
+
+     if (e) {
+      scan_res.entries[scan_res.nb_entries] = *e; 
+      scan_res.hashes[scan_res.nb_entries] = key; 
+      scan_res.nb_entries++;
+     } /*else {
+     if (print)
+      printf("CANT BE FOUND %lu\n", key);
+     }*/
+     count++;
+   }
+
+   return scan_res;
+}
+
 int rbtree_tnt_invalid(void *item) {
    rbtree t = trees_location[0];
    struct item_metadata *meta = (struct item_metadata *)item;

@@ -3,5 +3,6 @@
 
 int make_fsst(void);
 tree_entry_t *pick_garbage_node();
+void flush_batched_load(void);
 
 #endif
