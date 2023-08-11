@@ -32,8 +32,8 @@ btree_t* btree_tnt_create(void);
 #define tnt_tree_get_useq rbtree_worker_get_useq
 #define tnt_node_update rbtree_node_update
 
-#define tnt_tree_lookup rbtree_worker_lookup
-#define tnt_tree_update rbtree_tree_update
+// #define tnt_tree_lookup rbtree_worker_lookup
+// #define tnt_tree_update rbtree_tree_update
 #define tnt_tree_delete rbtree_worker_delete
 #define tnt_tree_scan rbtree_init_scan
 

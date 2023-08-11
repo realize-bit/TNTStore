@@ -39,6 +39,7 @@ static off_t item_in_page_offset(struct slab *s, size_t idx) {
 /*
  * When first loading a slab from disk we need to rebuild the in memory tree, these functions do that.
  */
+// TODO::JS::지금은 사용 안함. 앞으로도 사용 안하면 제거
 void add_existing_item(struct slab *s, size_t idx, void *_item, struct slab_callback *callback) {
    struct item_metadata *item = _item;
    if(item->key_size == -1) { // Removed item
@@ -60,6 +61,7 @@ void add_existing_item(struct slab *s, size_t idx, void *_item, struct slab_call
    }
 }
 
+// TODO::JS::지금은 사용 안함. 앞으로도 사용 안하면 제거
 void process_existing_chunk(int slab_worker_id, struct slab *s, size_t nb_files, size_t file_idx, char *data, size_t start, size_t length, struct slab_callback *callback) {
    static __thread declare_periodic_count;
    size_t nb_items_per_page = PAGE_SIZE / s->item_size;
@@ -151,6 +153,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
     s->batched_callbacks = calloc(32, sizeof(*s->batched_callbacks));
    s->batch_idx = 0;
    s->nb_batched = 0;
+   INIT_LOCK(&s->tree_lock, NULL);
    /*
    // Read the first page and rebuild the index if the file contains data
    struct item_metadata *meta = read_item(s, 0);
@@ -191,14 +194,21 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    struct item_metadata *meta = (struct item_metadata *)cb->item;
    char *item_key = &cb->item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
-   uint64_t new_key = (s->min + s->max)/2;
+   uint64_t new_key;
+
+   R_LOCK(&s->tree_lock);
+    new_key = (s->min + s->max)/2;
+   R_UNLOCK(&s->tree_lock);
 
    // if(s->key != new_key)
      tnt_node_update(s->key, new_key);
    printf("NNN: %lu, %lu // %lu-%lu\n", 
           (uint64_t)s->key, (uint64_t)new_key, 
           s->min, s->max);
+
+   W_LOCK(&s->tree_lock);
    s->key = new_key;
+   W_UNLOCK(&s->tree_lock);
 
    // if (s->nb_batched != 0) {
    //   printf("Possible? %d\n", s->nb_batched);
@@ -209,9 +219,9 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    //   s->nb_batched = 0;
    // }
 
-   cb->slab = create_slab(s->ctx, get_worker(s), new_key-1, cb);
+   cb->slab = create_slab(NULL, 0, new_key-1, cb);
    tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key-1);
-   cb->slab = create_slab(s->ctx, get_worker(s), new_key+1, cb);
+   cb->slab = create_slab(NULL, 0, new_key+1, cb);
    tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key+1);
    cb->slab = s;
    // cb->slab =  tnt_tree_get((void*)key)->slab;
@@ -295,6 +305,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
    struct item_metadata *meta = item;
    off_t offset_in_page = item_in_page_offset(s, idx);
    struct item_metadata *old_meta = (void*)(&disk_page[offset_in_page]);
+   struct slab_context *ctx = get_slab_context(item);
 
    /* UPDATE도 ADD 취급이다.
    if(callback->action == UPDATE) {
@@ -311,7 +322,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
    }
    */
 
-   meta->rdt = get_rdt(s->ctx);
+   meta->rdt = get_rdt(ctx);
    if(meta->key_size == -1)
       memcpy(&disk_page[offset_in_page], meta, sizeof(*meta));
    else if(get_item_size(item) > s->item_size)
@@ -335,42 +346,53 @@ void update_item_async(struct slab_callback *callback) {
  */
 void add_item_async_cb1(struct slab_callback *callback) {
    struct slab *s = callback->slab;
-
    struct lru *lru_entry = callback->lru_entry;
+
    if (callback->slab_idx != -1)
       goto skip;
+
+   R_LOCK(&s->tree_lock);
    if(lru_entry == NULL) { // no free page, append
       // TODO::JS::일단 아이템 사이즈 고정시킴
-      assert(s->last_item < s->nb_max_items);
-      if(s->last_item + 1 == s->nb_max_items) {
+      // assert(s->last_item < s->nb_max_items);
+      callback->slab_idx = s->last_item-1;
+      // if (load) 
+         // s->batched_callbacks[s->nb_batched++] = callback;
+
+      if(s->last_item == s->nb_max_items) {
+         assert(s->imm == 1);
+         // s->imm = 1;
+         R_UNLOCK(&s->tree_lock);
          s = close_and_create_slab(s, callback);
+         R_LOCK(&s->tree_lock);
       }
-      callback->slab_idx = s->last_item;
       // printf("%lu %lu\n", s->nb_items, s->nb_max_items);
-      assert(s->last_item < s->nb_max_items);
-      s->last_item++;
+      // assert(s->last_item < s->nb_max_items);
    } else { // reuse a free spot. Don't forget to add the linked tombstone in the freelist.
       char *disk_page = callback->lru_entry->page;
       off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
       add_son_in_freelist(callback->slab, callback->slab_idx, (void*)(&disk_page[in_page_offset]));
    }
-   s->nb_items++;
    
    //JS::그냥 실험 빨리빨리 해보기 위해 로딩 성능 높여주려고 임의로 추가
+   /*
    if (load) {
-     s->batched_callbacks[s->nb_batched++] = callback;
-
      if (s->nb_batched == 32) {
       for (int i=0; i<32; i++) {
+        pthread_spin_unlock(&s->tree_lock);
         update_item_async(s->batched_callbacks[i]);
+        pthread_spin_lock(&s->tree_lock);
         s->batched_callbacks[i] = NULL;
       }
       s->nb_batched = 0;
       if (s->last_item == s->nb_max_items)
         free(s->batched_callbacks);
      }
+     pthread_spin_unlock(&s->tree_lock);
      return;
    }
+   */
+   R_UNLOCK(&s->tree_lock);
    // if (print)
    //  printf("ADD ITEM (%lu, %lu)\n", s->key, callback->slab_idx);
 
@@ -389,17 +411,24 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
 
-   tnt_index_invalid(cb->item);
-   /*
+   // tnt_index_invalid(cb->item);
+   // W_LOCK(&cb->fsst_slab->tree_lock);
+   // if(btree_worker_invalid_utree(cb->fsst_slab->tree, item)) {
+      // cb->fsst_slab->nb_items--;
+   // }
+   // W_UNLOCK(&cb->fsst_slab->tree_lock);
    if(tnt_index_invalid(cb->item) == 0)
      printf("UPDATE NULL\n");
-   else
-     printf("UPDATE COMP\n");
-   */
+   // else
+     // printf("UPDATE COMP\n");
 
+   W_LOCK(&s->tree_lock);
    memory_index_delete_utree(cb->slab->tree, item);
+   // W_LOCK(&s->tree_lock);
    // printf("ADD %lu -> (%lu, %lu)\n", key, s->key, cb->slab_idx);
+   // W_LOCK(&s->tree_lock);
    memory_index_add_utree(cb, item);
+
    filter_add(s->filter, (unsigned char*)&key);
 
    if (key < s->min) {
@@ -412,6 +441,7 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    }
    if (s->last_item == s->nb_max_items)
       s->imm = 1;
+   W_UNLOCK(&s->tree_lock);
 
    if (cb->cb_cb == add_in_tree_for_update) {
     // printf("CBCB\n");
@@ -445,6 +475,7 @@ void remove_item_by_idx_async_cb1(struct slab_callback *callback) {
    size_t idx = callback->slab_idx;
 
    off_t offset_in_page = item_in_page_offset(s, idx);
+   struct slab_context *ctx = get_slab_context(callback->item);
 
    struct item_metadata *meta = (void*)&disk_page[offset_in_page];
    if(meta->key_size == -1) { // already removed
@@ -453,7 +484,7 @@ void remove_item_by_idx_async_cb1(struct slab_callback *callback) {
       return;
    }
 
-   meta->rdt = get_rdt(s->ctx);
+   meta->rdt = get_rdt(ctx);
    meta->key_size = -1;
 
    s->nb_items--;

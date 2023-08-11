@@ -30,6 +30,8 @@ static int nb_disks = 0;
 static int nb_workers_launched = 0;
 static int nb_workers_ready = 0;
 
+static struct pagecache *pagecaches __attribute__((aligned(64)));
+
 int get_nb_workers(void) {
    return nb_workers;
 }
@@ -46,7 +48,6 @@ int get_nb_disks(void) {
 size_t slab_sizes[] = { 100, 128, 256, 400, 512, 1024, 1365, 2048, 4096 };
 struct slab_context {
    size_t worker_id __attribute__((aligned(64)));        // ID
-   struct slab **slabs;                                  // Files managed by this worker
    struct slab_callback **callbacks;                     // Callbacks associated with the requests
    volatile size_t buffered_callbacks_idx;               // Number of requests enqueued or in the process of being enqueued
    volatile size_t sent_callbacks;                       // Number of requests fully enqueued
@@ -64,6 +65,10 @@ int get_worker(struct slab *s) {
 
 struct pagecache *get_pagecache(struct slab_context *ctx) {
    return ctx->pagecache;
+}
+
+struct pagecache *get_pagecache_uhash(uint64_t hash) {
+   return &pagecaches[hash%get_nb_workers()];
 }
 
 struct io_context *get_io_context(struct slab_context *ctx) {
@@ -117,9 +122,9 @@ static uint64_t get_hash_for_item(char *item) {
 }
 
 /* Requests are statically attributed to workers using this function */
-static struct slab_context *get_slab_context(void *item) {
+struct slab_context *get_slab_context(void *item) {
    uint64_t hash = get_hash_for_item(item);
-   return &slab_contexts[hash%get_nb_workers()];
+   return &slab_contexts[(hash)%get_nb_workers()];
 }
 
 size_t get_item_size(char *item) {
@@ -133,10 +138,10 @@ static struct slab *get_slab(struct slab_context *ctx, void *item) {
    uint64_t key = *(uint64_t*)item_key;
    struct tree_entry *tree = tnt_tree_get((void*)key);
    // printf("NNN: %lu\n", tree->key);
-   if (tree->slab->last_item == tree->slab->nb_max_items) {
-      printf("key: %lu\n", key);
-      tnt_print();
-   }
+   // if (tree->slab->last_item == tree->slab->nb_max_items) {
+   //    printf("key: %lu\n", key);
+   //    tnt_print();
+   // }
 
    if (!tree)
       die("Item is too big\n");
@@ -171,7 +176,9 @@ void *kv_read_sync(void *item) {
    struct slab_context *ctx = get_slab_context(item);
    struct slab *s = get_slab(ctx, item);
    // Warning, this is very unsafe, the lookup might not be performed in the worker context => race! We only use that during init.
+   R_LOCK(&s->tree_lock);
    index_entry_t *e = memory_index_lookup_utree(s->tree, item);
+   R_UNLOCK(&s->tree_lock);
    if(e)
       return read_item(s, GET_SIDX(e->slab_idx));
    else
@@ -184,10 +191,11 @@ void kv_read_async(struct slab_callback *callback) {
 }
 
 void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx, size_t count) {
+   struct slab_context *ctx = get_slab_context(callback->item);
    callback->slab = s;
    callback->slab_idx = slab_idx;
    callback->count = count;
-   return enqueue_slab_callback(s->ctx, READ_NO_LOOKUP, callback);
+   return enqueue_slab_callback(ctx, READ_NO_LOOKUP, callback);
 }
 
 void kv_add_async(struct slab_callback *callback) {
@@ -237,6 +245,9 @@ again:
       if(action != READ_NO_LOOKUP)
          // e = memory_index_lookup(ctx->worker_id, callback->item);
          e = tnt_index_lookup(callback->item);
+      
+      if (e && e->slab->seq > 1)
+        printf("???\n");
 
       switch(action) {
          case READ_NO_LOOKUP:
@@ -285,10 +296,18 @@ again:
             // uint64_t key = *(uint64_t*)item_key;
             // printf("Update key: %lu\n", key);
             if (e && callback->slab == e->slab 
-                && !TEST_INVAL(e->slab_idx))
+                && !TEST_INVAL(e->slab_idx)) {
               callback->slab_idx = GET_SIDX(e->slab_idx);
+              printf("REAL UPDATE CASE seq/imm cb: %lu/%d, new: %lu/%d, fsst: %lu/%d\n", callback->slab->seq, callback->slab->imm, e->slab->seq, e->slab->imm, callback->fsst_slab->seq, callback->fsst_slab->imm);
+            }
             else
               callback->slab_idx = -1;
+
+            if (callback->fsst_slab == NULL) {
+              callback->fsst_slab = e->slab;
+              callback->fsst_idx = GET_SIDX(e->slab_idx);
+            }
+
             remove_and_add_item_async(callback);
             break;
          case ADD_OR_UPDATE:
@@ -337,12 +356,13 @@ again:
    }
 }
 
+/*
 static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
    struct item_metadata *new_meta = item;
    if(!memory_index_lookup(get_worker(cb->slab), item)) {
       memory_index_add_utree(cb, item);
    } else {
-      /* Complex path -- item is already in the index, we should decide which one to keep based on rdt! */
+      // Complex path -- item is already in the index, we should decide which one to keep based on rdt!
       printf("#WARNING! Item is present twice in the database! Has the database crashed?\n");
       struct item_metadata *old_meta = kv_read_sync(item);
       assert(old_meta);
@@ -354,7 +374,7 @@ static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
       }
 
    }
-}
+}*/
 
 static void *worker_slab_init(void *pdata) {
    struct slab_context *ctx = pdata;
@@ -372,18 +392,6 @@ static void *worker_slab_init(void *pdata) {
 
    /* Initialize the async io for the worker */
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
-
-   /* Rebuild existing data structures */
-   size_t nb_slabs = sizeof(slab_sizes)/sizeof(*slab_sizes);
-   ctx->slabs = malloc(nb_slabs*sizeof(*ctx->slabs));
-   struct slab_callback *cb = malloc(sizeof(*cb));
-   cb->cb = worker_slab_init_cb;
-
-   cb->slab = create_slab(ctx, ctx->worker_id, 0, cb);
-   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), 0);
-
-   // ctx->slabs[0] = create_slab(ctx, ctx->worker_id, nb_sequence, cb);
-   free(cb);
 
     __sync_add_and_fetch(&nb_workers_ready, 1);
 
@@ -421,12 +429,19 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
    nb_disks = _nb_disks;
    nb_workers = nb_disks * nb_workers_per_disk;
 
-   memory_index_init();
+   // memory_index_init();
 
    tnt_tree_init();
+   struct slab_callback *cb = malloc(sizeof(*cb));
+   // page_cache_init(ctx->pagecache);
+   cb->cb = NULL;
+   cb->slab = create_slab(NULL, 0, 0, cb);
+   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), 0);
+   free(cb);
 
    pthread_t t;
    slab_contexts = calloc(nb_workers, sizeof(*slab_contexts));
+   pagecaches = calloc(nb_workers, sizeof(*pagecaches));
    for(size_t w = 0; w < nb_workers; w++) {
       struct slab_context *ctx = &slab_contexts[w];
       ctx->worker_id = w;

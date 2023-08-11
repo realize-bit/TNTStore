@@ -158,10 +158,11 @@ char *no_read_page_async(struct slab_callback *callback) {
    struct lru *lru_entry;
    void *disk_page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
-   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(c);
    uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
 
-   alread_used = get_page(get_pagecache(callback->slab->ctx), hash, &disk_page, &lru_entry);
+   alread_used = get_page(get_pagecache(c), hash, &disk_page, &lru_entry);
    lru_entry->contains_data = 1;
    callback->lru_entry = lru_entry;
 
@@ -183,10 +184,11 @@ char *read_page_async(struct slab_callback *callback) {
    struct lru *lru_entry;
    void *disk_page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
-   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(c);
    uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
 
-   alread_used = get_page(get_pagecache(callback->slab->ctx), hash, &disk_page, &lru_entry);
+   alread_used = get_page(get_pagecache(c), hash, &disk_page, &lru_entry);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
       __sync_add_and_fetch(&cache_hit, 1);
@@ -225,11 +227,12 @@ char *read_file_async(struct slab_callback *callback) {
    void *disk_page;
    uint64_t start_page = item_page_num(callback->slab, callback->slab_idx);
    uint64_t end_page = item_page_num(callback->slab, callback->slab_idx+callback->count-1);
-   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(c);
    uint64_t hash = get_hash_for_page(callback->slab->fd, start_page);
    uint64_t size = end_page - start_page + 1;
 
-   alread_used = get_page_for_file(get_pagecache(callback->slab->ctx), hash, size, &disk_page, &lru_entry);
+   alread_used = get_page_for_file(get_pagecache(c), hash, size, &disk_page, &lru_entry);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
       __sync_add_and_fetch(&cache_hit, 1);
@@ -264,7 +267,8 @@ char *read_file_async(struct slab_callback *callback) {
 
 /* Enqueue a request to write a page, the lru entry must contain the content of the page (obviously) */
 char *write_page_async(struct slab_callback *callback) {
-   struct io_context *ctx = get_io_context(callback->slab->ctx);
+   struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(c);
    struct lru *lru_entry = callback->lru_entry;
    void *disk_page = lru_entry->page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);

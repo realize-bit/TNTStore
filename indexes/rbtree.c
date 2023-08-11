@@ -257,12 +257,7 @@ node lookup_closest_node(rbtree t, void* key, compare_func compare) {
    int closest_seq = 0;
    node closest = NULL;
    while (n != NULL) {
-      // printf("Closest %lu %lu\n", n->value.seq, closest_seq);
       int comp_result = compare(key, n->key);
-      //if (comp_result == 0) {
-      //   t->last_visited_node = n;
-      //   return n;
-      //} else 
       if (comp_result <= 0) {
          closest = n;
          n = n->left;

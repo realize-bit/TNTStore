@@ -8,8 +8,10 @@ static void check_and_remove_tree (struct slab_callback *cb, void *item) {
   free(cb->item);
   free(cb);
 
+  W_LOCK(&s->tree_lock);
   if (s->nb_items || (s->max == 0 && s->min == -1)) {
     // printf("fsst %lu %lu %lu\n", s->nb_items, s->min, s->max);
+    W_UNLOCK(&s->tree_lock);
     return;
   }
 
@@ -20,6 +22,7 @@ static void check_and_remove_tree (struct slab_callback *cb, void *item) {
   s->max = 0;
   btree_free(s->tree);
   s->tree = NULL;
+  W_UNLOCK(&s->tree_lock);
 }
 
 // 선택된 인덱스 처리
@@ -39,8 +42,10 @@ void skip_or_invalidate_index(void *e) {
    cb->cb = NULL;
    cb->cb_cb = check_and_remove_tree;
    cb->slab = i->slab;
-   cb->fsst_slab = i->slab;
    cb->slab_idx = GET_SIDX(i->slab_idx);
+   cb->fsst_slab = i->slab;
+   cb->fsst_idx = GET_SIDX(i->slab_idx);
+   R_UNLOCK(&i->slab->tree_lock);
   // val이면 
     // 그냥 여기서 inval set하고, 나중에 lookup 없이 add만 하는게 좋다. 
     // 그런데 일단은 그냥 여기서 update 호출 하는 것으로
@@ -56,6 +61,7 @@ void skip_or_invalidate_index(void *e) {
   // printf("FSST %lu: %lu, %lu\n", cb->slab_idx, page_num, page_idx);
   memcpy(cb->item, src, cb->slab->item_size);
   kv_update_async(cb);
+  R_LOCK(&i->slab->tree_lock);
   return;
 }
 // victim node 선택하기
@@ -71,13 +77,25 @@ int make_fsst(void) {
   int count;
   tree_entry_t *victim = NULL;
   cur = 0;
+  /*
+  do {
+      victim = pick_garbage_node();
+      while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
+        victim = pick_garbage_node();
+      if (!victim || cur > 500)
+        break;
+      printf("FSST0 NB %lu seq %lu imm %u / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->imm, victim->slab->fd, count);
+
+  } while (victim);
+  cur = 0;
+  */
 
   do {
       victim = pick_garbage_node();
       while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
         victim = pick_garbage_node();
 
-      if (!victim || cur > 200)
+      if (!victim || cur > 500)
         break;
 
       if (!vict_file_data)
@@ -87,9 +105,11 @@ int make_fsst(void) {
         die("FSST Static Buf Error\n");
 
       count = pread(victim->slab->fd, vict_file_data, victim->slab->size_on_disk, 0);
-      // printf("FSST1 NB %lu %lu / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->fd, count);
+      printf("FSST1 NB %lu seq %lu imm %u / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->imm, victim->slab->fd, count);
+      R_LOCK(&victim->slab->tree_lock);
       count = btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index);
-      // printf("FSST2 NB %lu %lu\n", victim->slab->nb_items, victim->slab->seq);
+      R_UNLOCK(&victim->slab->tree_lock);
+      printf("FSST2 NB %lu %lu %d\n", victim->slab->nb_items, victim->slab->seq, count);
   } while (victim);
 
   free(vict_file_data);

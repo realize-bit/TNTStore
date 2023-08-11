@@ -77,6 +77,7 @@ struct lru {
    void *page;
    int contains_data;
    int dirty;
+   pthread_lock_t llock;
 };
 
 struct pagecache {
@@ -84,6 +85,7 @@ struct pagecache {
    hash_t hash_to_page;
    struct lru *used_pages, *oldest_page, *newest_page;
    size_t used_page_size;
+   pthread_lock_t plock;
 };
 
 void page_cache_init(struct pagecache *p);

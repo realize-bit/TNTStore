@@ -2,6 +2,23 @@
 #define SLAB_H 1
 
 #include "ioengine.h"
+#define RW_LOCK
+
+#ifdef RW_LOCK
+  #define INIT_LOCK(l, attr) pthread_rwlock_init(l, attr)
+  #define R_LOCK(l) pthread_rwlock_rdlock(l)
+  #define W_LOCK(l) pthread_rwlock_wrlock(l)
+  #define R_UNLOCK(l) pthread_rwlock_unlock(l)
+  #define W_UNLOCK(l) pthread_rwlock_unlock(l)
+  #define pthread_lock_t pthread_rwlock_t
+#else
+  #define INIT_LOCK(l, attr) pthread_spin_init(l, attr)
+  #define R_LOCK(l) pthread_spin_lock(l)
+  #define W_LOCK(l) pthread_spin_lock(l)
+  #define R_UNLOCK(l) pthread_spin_unlock(l)
+  #define W_UNLOCK(l) pthread_spin_unlock(l)
+  #define phtread_lock_t pthread_spinlock_t
+#endif
 
 struct slab;
 struct slab_callback;
@@ -18,7 +35,9 @@ struct slab {
    uint64_t seq;
    void *tree;
    void *filter;
+
    unsigned char imm;
+   pthread_lock_t tree_lock;
 
    unsigned char batch_idx;
    unsigned char nb_batched;
@@ -56,10 +75,12 @@ struct slab_callback {
       uint64_t slab_idx;
       uint64_t tmp_page_number; // when we add a new item we don't always know it's idx directly, sometimes we just know which page it will be placed on
    };
+
    uint64_t count;
    struct lru *lru_entry;
    io_cb_t *io_cb;
-   struct slab *fsst_slab;
+   struct slab *fsst_slab; // FSST과정에 업데이트를 하면 기존 slab은, 새로 작성된 slab으로 변경된다. 기존 slab이 뭐였는지 보관하기 위해 필요.
+  uint64_t fsst_idx;
 };
 
 struct slab* create_slab(struct slab_context *ctx, int worker_id, size_t item_size, struct slab_callback *callback);

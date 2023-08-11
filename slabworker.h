@@ -31,4 +31,5 @@ int get_worker(struct slab *s);
 int get_nb_disks(void);
 struct slab *get_item_slab(int worker_id, void *item);
 size_t get_item_size(char *item);
+struct slab_context *get_slab_context(void *item);
 #endif

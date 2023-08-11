@@ -45,6 +45,7 @@ static void add_in_tree(struct slab_callback *cb, void *item) {
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
 
+   W_LOCK(&s->tree_lock);
    memory_index_add_utree(cb, item);
    filter_add(s->filter, (unsigned char*)&key);
    if (key < s->min)
@@ -53,6 +54,7 @@ static void add_in_tree(struct slab_callback *cb, void *item) {
       s->max = key;
    if (s->last_item == s->nb_max_items)
       s->imm = 1;
+   W_UNLOCK(&s->tree_lock);
 
    if (!cb->cb_cb) {
     free(cb->item);
@@ -230,6 +232,7 @@ struct slab_callback *bench_cb(void) {
    cb->cb = compute_stats;
    cb->cb_cb = NULL;
    cb->payload = allocate_payload();
+   cb->fsst_slab = NULL;
    return cb;
 }
 
