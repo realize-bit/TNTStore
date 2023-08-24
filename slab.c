@@ -114,7 +114,7 @@ void rebuild_index(int slab_worker_id, struct slab *s, struct slab_callback *cal
  * Create a slab: a file that only contains items of a given size.
  * @callback is a callback that will be called on all previously existing items of the slab if it is restored from disk.
  */
-struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t key, struct slab_callback *callback) {
+struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t key) {
    struct stat sb;
    char path[512];
    struct slab *s = calloc(1, sizeof(*s));
@@ -190,12 +190,20 @@ static int show_rbtree(void *key, void *value) {
  return 0;
 }
 
-struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
-   struct item_metadata *meta = (struct item_metadata *)cb->item;
-   char *item_key = &cb->item[sizeof(*meta)];
-   uint64_t key = *(uint64_t*)item_key;
+void create_root_slab() {
+   tnt_tree_init();
+   struct slab_callback *cb = malloc(sizeof(*cb));
+   // page_cache_init(ctx->pagecache);
+   cb->cb = NULL;
+   cb->slab = create_slab(NULL, 0, 0);
+   tnt_tree_add(cb->slab, tnt_tree_create(), filter_create(200000), 0);
+   free(cb);
+}
+
+struct slab* close_and_create_slab(struct slab *s) {
    uint64_t new_key;
 
+   //TODO::JS:: add_in_tree 쪽으로 옮겨야함
    R_LOCK(&s->tree_lock);
     new_key = (s->min + s->max)/2;
    R_UNLOCK(&s->tree_lock);
@@ -219,18 +227,15 @@ struct slab* close_and_create_slab(struct slab *s, struct slab_callback *cb) {
    //   s->nb_batched = 0;
    // }
 
-   cb->slab = create_slab(NULL, 0, new_key-1, cb);
-   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key-1);
-   cb->slab = create_slab(NULL, 0, new_key+1, cb);
-   tnt_tree_add(cb, tnt_tree_create(), filter_create(65536), new_key+1);
-   cb->slab = s;
+   tnt_tree_add(create_slab(NULL, 0, new_key-1), tnt_tree_create(), (void*)filter_create(200000), new_key-1);
+   tnt_tree_add(create_slab(NULL, 0, new_key+1), tnt_tree_create(), (void*)filter_create(200000), new_key+1);
    // cb->slab =  tnt_tree_get((void*)key)->slab;
    // printf("NNN4: %lu %lu // %lu-%lu\n", 
    //        key, (uint64_t)cb->slab->key, 
    //        cb->slab->min, cb->slab->max);
    // tnt_print(show_rbtree);
    // s->key = new_key;
-   return cb->slab;
+   return s;
 }
 
 
@@ -278,6 +283,7 @@ void scan_item_async(struct slab_callback *callback) {
 void update_item_async_cb2(struct slab_callback *callback) {
    char *disk_page = callback->lru_entry->page;
    off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
+   unsigned char cbcb = callback->cb_cb ? 1 : 0;
 
 
    struct item_metadata *meta = (struct item_metadata *)callback->item;
@@ -286,12 +292,14 @@ void update_item_async_cb2(struct slab_callback *callback) {
 
    void *item = &disk_page[in_page_offset];
    struct item_metadata *meta2 = (struct item_metadata *)item;
-   char *item_key2 = &item[sizeof(*meta)];
+   char *item_key2 = &item[sizeof(*meta2)];
    uint64_t key2 = *(uint64_t*)item_key2;
+   if (key != key2)
+    printf("DIFF key1: %lu, key2: %lu, key/idx: %lu/%lu\n", key, key2, callback->slab->seq, callback->slab_idx);
 
    if(callback->cb)
       callback->cb(callback, &disk_page[in_page_offset]);
-   if(callback->cb_cb)
+   if(cbcb)
       callback->cb_cb(callback, &disk_page[in_page_offset]);
 
 }
@@ -305,7 +313,8 @@ void update_item_async_cb1(struct slab_callback *callback) {
    struct item_metadata *meta = item;
    off_t offset_in_page = item_in_page_offset(s, idx);
    struct item_metadata *old_meta = (void*)(&disk_page[offset_in_page]);
-   struct slab_context *ctx = get_slab_context(item);
+   // struct slab_context *ctx = get_slab_context(item);
+   struct slab_context *ctx = callback->ctx;
 
    /* UPDATE도 ADD 취급이다.
    if(callback->action == UPDATE) {
@@ -330,6 +339,19 @@ void update_item_async_cb1(struct slab_callback *callback) {
    else
       memcpy(&disk_page[offset_in_page], item, get_item_size(item));
 
+   /*
+   char *item_key = &callback->item[sizeof(*meta)];
+   uint64_t key = *(uint64_t*)item_key;
+   off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
+
+   void *item2 = &disk_page[in_page_offset];
+   struct item_metadata *meta2 = (struct item_metadata *)item;
+   char *item_key2 = &item2[sizeof(*meta)];
+   uint64_t key2 = *(uint64_t*)item_key2;
+   // if (key != key2)
+    // printf("DIFFFF key1: %lu, key2: %lu, %lu/%lu\n", key, key2, s->seq, idx);
+   */
+
    callback->io_cb = update_item_async_cb2;
    write_page_async(callback);
 }
@@ -348,22 +370,24 @@ void add_item_async_cb1(struct slab_callback *callback) {
    struct slab *s = callback->slab;
    struct lru *lru_entry = callback->lru_entry;
 
-   if (callback->slab_idx != -1)
-      goto skip;
+   // if (callback->slab_idx != -1)
+      // goto skip;
 
    R_LOCK(&s->tree_lock);
    if(lru_entry == NULL) { // no free page, append
       // TODO::JS::일단 아이템 사이즈 고정시킴
       // assert(s->last_item < s->nb_max_items);
-      callback->slab_idx = s->last_item-1;
+      // callback->slab_idx = s->last_item-1;
       // if (load) 
          // s->batched_callbacks[s->nb_batched++] = callback;
 
-      if(s->last_item == s->nb_max_items) {
+      if(callback->slab_idx+1 == s->nb_max_items && 
+        callback->slab_idx != callback->fsst_idx) {
          assert(s->imm == 1);
+         assert(s->last_item == s->nb_max_items);
          // s->imm = 1;
          R_UNLOCK(&s->tree_lock);
-         s = close_and_create_slab(s, callback);
+         s = close_and_create_slab(s);
          R_LOCK(&s->tree_lock);
       }
       // printf("%lu %lu\n", s->nb_items, s->nb_max_items);
@@ -396,8 +420,15 @@ void add_item_async_cb1(struct slab_callback *callback) {
    // if (print)
    //  printf("ADD ITEM (%lu, %lu)\n", s->key, callback->slab_idx);
 
-skip:
-   update_item_async(callback);
+// skip:
+   // if (callback->ctx != get_slab_context_uidx(callback->slab_idx)) {
+    // increase_processed(callback->ctx);
+   kv_add_async_no_lookup(callback, callback->slab, callback->slab_idx);
+    // return;
+   // }
+
+   // update_item_async(callback);
+   // increase_processed(callback->ctx);
 }
 
 void add_item_async(struct slab_callback *callback) {
@@ -405,11 +436,12 @@ void add_item_async(struct slab_callback *callback) {
    get_free_item_idx(callback);
 }
 
-static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
+void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
+   int alrdy = 0;
 
    // tnt_index_invalid(cb->item);
    // W_LOCK(&cb->fsst_slab->tree_lock);
@@ -417,19 +449,30 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       // cb->fsst_slab->nb_items--;
    // }
    // W_UNLOCK(&cb->fsst_slab->tree_lock);
-   if(tnt_index_invalid(cb->item) == 0)
-     printf("UPDATE NULL\n");
+   if(tnt_index_invalid(cb->item) == 0) {
+     if (cb->fsst_slab)
+      printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+     else 
+      printf("UPDATE NULL %lu seq/idx %lu/%lu fsst NULL\n", key, cb->slab->seq, cb->slab_idx);
+    }
    // else
      // printf("UPDATE COMP\n");
 
    W_LOCK(&s->tree_lock);
-   memory_index_delete_utree(cb->slab->tree, item);
+   alrdy = memory_index_delete_utree(cb->slab->tree, item);
    // W_LOCK(&s->tree_lock);
    // printf("ADD %lu -> (%lu, %lu)\n", key, s->key, cb->slab_idx);
    // W_LOCK(&s->tree_lock);
    memory_index_add_utree(cb, item);
 
-   filter_add(s->filter, (unsigned char*)&key);
+   if(!alrdy) {
+    if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
+      printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n", s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+    } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
+        printf("FIFIFIFIF UPUP\n");
+
+    }
+  }
 
    if (key < s->min) {
       // printf("Min: %lu -> %lu\n", s->min, key);
@@ -439,8 +482,8 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       // printf("Max: %lu -> %lu\n", s->max, key);
       s->max = key;
    }
-   if (s->last_item == s->nb_max_items)
-      s->imm = 1;
+   // if (s->last_item == s->nb_max_items)
+      // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
 
    if (cb->cb_cb == add_in_tree_for_update) {
@@ -452,13 +495,18 @@ static void add_in_tree_for_update(struct slab_callback *cb, void *item) {
 
 void remove_and_add_item_async(struct slab_callback *callback) {
    callback->io_cb = add_item_async_cb1;
-   if (callback->slab_idx == -1) {
-      // printf("UPDATE TREE\n");
-      if (!callback->cb)
+   if (callback->slab_idx != -1) {
+      if (!callback->cb) // making fsst by using cb_cb
        callback->cb = add_in_tree_for_update;
-      else
-       callback->cb_cb = add_in_tree_for_update;
-   } 
+      else {
+       callback->cb_cb = callback->cb; // computes_stat
+       callback->cb = add_in_tree_for_update;
+      }
+   }  else  {
+      //FSST과정에서는 불가능 해야 하는(호출되면 안되는) 상황
+     callback->slab_idx = callback->fsst_idx;
+      // printf("UPDATE TREE\n");
+  }
   // else
   //     printf("KEEP TREE (%lu, %lu)\n", callback->slab->key, callback->slab_idx);
    get_free_item_idx(callback);

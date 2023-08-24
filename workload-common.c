@@ -39,7 +39,7 @@ char *create_workload_item(struct workload *w) {
 /*
  * Fill the DB with missing items
  */
-static void add_in_tree(struct slab_callback *cb, void *item) {
+void add_in_tree(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
@@ -47,16 +47,20 @@ static void add_in_tree(struct slab_callback *cb, void *item) {
 
    W_LOCK(&s->tree_lock);
    memory_index_add_utree(cb, item);
-   filter_add(s->filter, (unsigned char*)&key);
+   if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
+    printf("Fail adding to filter %p %lu %lu\n", s->filter, key, s->nb_items);
+  } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
+        printf("FIFIFIFIF\n");
+  }
    if (key < s->min)
       s->min = key;
    if (key > s->max)
       s->max = key;
-   if (s->last_item == s->nb_max_items)
-      s->imm = 1;
+   // if (s->last_item == s->nb_max_items)
+      // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
 
-   if (!cb->cb_cb) {
+   if (!cb->cb_cb || cb->cb_cb == add_in_tree) {
     free(cb->item);
     free(cb);
    }
@@ -73,7 +77,7 @@ void *repopulate_db_worker(void *pdata) {
    declare_periodic_count;
    struct rebuild_pdata *data = pdata;
 
-   pin_me_on(get_nb_workers() + data->id);
+   pin_me_on(get_nb_workers()*2 + data->id);
 
    size_t *pos = data->pos;
    struct workload *w = data->w;
@@ -85,6 +89,9 @@ void *repopulate_db_worker(void *pdata) {
       cb->cb = add_in_tree;
       cb->cb_cb = NULL;
       cb->payload = NULL;
+      cb->fsst_slab = NULL;
+      cb->fsst_idx = -1;
+      cb->count = 0;
       cb->item = api->create_unique_item(pos[i], w->nb_items_in_db);
       kv_add_async(cb);
       periodic_count(1000, "Repopulating database (%lu%%)", 100LU-(end-i)*100LU/(end - start));
@@ -218,11 +225,11 @@ void compute_stats(struct slab_callback *cb, void *item) {
                get_origin_from_payload(cb, 7), get_time_from_payload(cb, 7) < start ? 0 : cycles_to_us(get_time_from_payload(cb, 7) - start),
                cycles_to_us(end  - start));
       }
-      if (!cb->cb_cb)
+      if (cb->cb_cb == compute_stats || !cb->cb_cb)
         free(cb->item);
       if(DEBUG)
          free_payload(cb);
-      if (!cb->cb_cb)
+      if (cb->cb_cb == compute_stats || !cb->cb_cb)
         free(cb);
    } stop_debug_timer(5000, "Callback took more than 5ms???");
 }
@@ -233,6 +240,7 @@ struct slab_callback *bench_cb(void) {
    cb->cb_cb = NULL;
    cb->payload = allocate_payload();
    cb->fsst_slab = NULL;
+   cb->fsst_idx = -1;
    return cb;
 }
 
@@ -259,7 +267,7 @@ void* do_workload_thread(void *pdata) {
    struct thread_data *d = pdata;
 
    init_seed();
-   pin_me_on(get_nb_workers() + d->id);
+   pin_me_on(get_nb_workers()*2 + d->id);
    pthread_barrier_wait(&barrier);
 
    d->workload->api->launch(d->workload, d->benchmark);

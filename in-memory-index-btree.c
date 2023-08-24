@@ -66,10 +66,10 @@ void btree_worker_delete(int worker_id, void *item) {
    if(old_entry)
       free(old_entry);
 }
-void btree_worker_delete_utree(btree_t *tree, void *item) {
+int btree_worker_delete_utree(btree_t *tree, void *item) {
    uint64_t hash = get_prefix_for_item(item);
 
-   btree_delete(tree, (unsigned char *)&(hash), sizeof(hash));
+   return btree_delete(tree, (unsigned char *)&(hash), sizeof(hash));
 }
 
 void btree_index_add(struct slab_callback *cb, void *item) {

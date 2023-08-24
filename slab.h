@@ -17,7 +17,7 @@
   #define W_LOCK(l) pthread_spin_lock(l)
   #define R_UNLOCK(l) pthread_spin_unlock(l)
   #define W_UNLOCK(l) pthread_spin_unlock(l)
-  #define phtread_lock_t pthread_spinlock_t
+  #define pthread_lock_t pthread_spinlock_t
 #endif
 
 struct slab;
@@ -61,12 +61,12 @@ struct slab {
  * item = page on disk (in the page cache)
  */
 typedef void (slab_cb_t)(struct slab_callback *, void *item);
-enum slab_action { ADD, UPDATE, DELETE, READ, READ_NO_LOOKUP, ADD_OR_UPDATE };
+enum slab_action { ADD, UPDATE, DELETE, READ, READ_NO_LOOKUP, ADD_OR_UPDATE, ADD_NO_LOOKUP, UPDATE_NO_LOOKUP };
 struct slab_callback {
    slab_cb_t *cb;
+   slab_cb_t *cb_cb;
    void *payload;
    void *item;
-   slab_cb_t *cb_cb;
 
    // Private
    enum slab_action action;
@@ -75,15 +75,16 @@ struct slab_callback {
       uint64_t slab_idx;
       uint64_t tmp_page_number; // when we add a new item we don't always know it's idx directly, sometimes we just know which page it will be placed on
    };
-
-   uint64_t count;
    struct lru *lru_entry;
    io_cb_t *io_cb;
-   struct slab *fsst_slab; // FSST과정에 업데이트를 하면 기존 slab은, 새로 작성된 slab으로 변경된다. 기존 slab이 뭐였는지 보관하기 위해 필요.
-  uint64_t fsst_idx;
+
+   uint64_t count;
+   struct slab *fsst_slab;
+   uint64_t fsst_idx;
+   struct slab_context *ctx;
 };
 
-struct slab* create_slab(struct slab_context *ctx, int worker_id, size_t item_size, struct slab_callback *callback);
+struct slab* create_slab(struct slab_context *ctx, int worker_id, size_t item_size);
 struct slab* resize_slab(struct slab *s);
 
 void *read_item(struct slab *s, size_t idx);
@@ -96,3 +97,4 @@ void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
 #endif
+void create_root_slab(void);

@@ -52,10 +52,10 @@ extern "C"
       }
    }
 
-   void btree_delete(btree_t *t, unsigned char*k, size_t len) {
+   int btree_delete(btree_t *t, unsigned char*k, size_t len) {
       uint64_t hash = *(uint64_t*)k;
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
-      b->erase(hash);
+      return b->erase(hash);
    }
 
    void btree_insert(btree_t *t, unsigned char*k, size_t len, struct index_entry *e) {
@@ -103,6 +103,7 @@ extern "C"
           // 문제가 생기느냐? tree가 free되는 순간이 온다면
           // 트리가 더이상 필요하지 않을 것 따라서 문제 없음
           // set_inval(&i->second.slab_idx);
+          // printf("FSST: %lu ", i->first);
           cb((void *)&i->second);
           count++;
          }

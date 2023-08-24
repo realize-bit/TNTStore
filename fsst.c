@@ -3,7 +3,7 @@
 static int cur = 0;
 static char *vict_file_data = NULL;
 
-static void check_and_remove_tree (struct slab_callback *cb, void *item) {
+void check_and_remove_tree (struct slab_callback *cb, void *item) {
   struct slab *s = cb->fsst_slab;
   free(cb->item);
   free(cb);
@@ -60,6 +60,10 @@ void skip_or_invalidate_index(void *e) {
   // printf("%s\n", src);
   // printf("FSST %lu: %lu, %lu\n", cb->slab_idx, page_num, page_idx);
   memcpy(cb->item, src, cb->slab->item_size);
+            struct item_metadata *meta = (struct item_metadata *)cb->item;
+            char *item_key = &cb->item[sizeof(*meta)];
+            uint64_t key = *(uint64_t*)item_key;
+            // printf("FSST key: %lu\n", key);
   kv_update_async(cb);
   R_LOCK(&i->slab->tree_lock);
   return;
@@ -105,11 +109,11 @@ int make_fsst(void) {
         die("FSST Static Buf Error\n");
 
       count = pread(victim->slab->fd, vict_file_data, victim->slab->size_on_disk, 0);
-      printf("FSST1 NB %lu seq %lu imm %u / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->imm, victim->slab->fd, count);
+      // printf("FSST1 NB %lu seq %lu imm %u / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->imm, victim->slab->fd, count);
       R_LOCK(&victim->slab->tree_lock);
       count = btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index);
       R_UNLOCK(&victim->slab->tree_lock);
-      printf("FSST2 NB %lu %lu %d\n", victim->slab->nb_items, victim->slab->seq, count);
+      // printf("FSST2 NB %lu %lu %d\n", victim->slab->nb_items, victim->slab->seq, count);
   } while (victim);
 
   free(vict_file_data);

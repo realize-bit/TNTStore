@@ -158,11 +158,11 @@ char *no_read_page_async(struct slab_callback *callback) {
    struct lru *lru_entry;
    void *disk_page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
-   struct slab_context *c = get_slab_context(callback->item);
-   struct io_context *ctx = get_io_context(c);
+   // struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(callback->ctx);
    uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
 
-   alread_used = get_page(get_pagecache(c), hash, &disk_page, &lru_entry);
+   alread_used = get_page(get_pagecache(callback->ctx), hash, &disk_page, &lru_entry);
    lru_entry->contains_data = 1;
    callback->lru_entry = lru_entry;
 
@@ -184,11 +184,15 @@ char *read_page_async(struct slab_callback *callback) {
    struct lru *lru_entry;
    void *disk_page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
-   struct slab_context *c = get_slab_context(callback->item);
-   struct io_context *ctx = get_io_context(c);
+   // struct slab_context *c = get_slab_context_uidx(callback->slab_idx);
+   struct io_context *ctx = get_io_context(callback->ctx);
    uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
 
-   alread_used = get_page(get_pagecache(c), hash, &disk_page, &lru_entry);
+   // callback->count = 1;
+   if (callback->action == ADD)
+      printf("NO NO LOOKUP\n");
+   // printf("worker: %d, page_num: %lu\n", get_worker_ucb(callback), page_num);
+   alread_used = get_page(get_pagecache(callback->ctx), hash, &disk_page, &lru_entry);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
       __sync_add_and_fetch(&cache_hit, 1);
@@ -227,12 +231,12 @@ char *read_file_async(struct slab_callback *callback) {
    void *disk_page;
    uint64_t start_page = item_page_num(callback->slab, callback->slab_idx);
    uint64_t end_page = item_page_num(callback->slab, callback->slab_idx+callback->count-1);
-   struct slab_context *c = get_slab_context(callback->item);
-   struct io_context *ctx = get_io_context(c);
+   // struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(callback->ctx);
    uint64_t hash = get_hash_for_page(callback->slab->fd, start_page);
    uint64_t size = end_page - start_page + 1;
 
-   alread_used = get_page_for_file(get_pagecache(c), hash, size, &disk_page, &lru_entry);
+   alread_used = get_page_for_file(get_pagecache(callback->ctx), hash, size, &disk_page, &lru_entry);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
       __sync_add_and_fetch(&cache_hit, 1);
@@ -267,12 +271,15 @@ char *read_file_async(struct slab_callback *callback) {
 
 /* Enqueue a request to write a page, the lru entry must contain the content of the page (obviously) */
 char *write_page_async(struct slab_callback *callback) {
-   struct slab_context *c = get_slab_context(callback->item);
-   struct io_context *ctx = get_io_context(c);
+   // struct slab_context *c = get_slab_context(callback->item);
+   struct io_context *ctx = get_io_context(callback->ctx);
    struct lru *lru_entry = callback->lru_entry;
    void *disk_page = lru_entry->page;
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
 
+   // callback->count = 2;
+   if (callback->action == ADD)
+      printf("NO NO LOOKUP\n");
    if(!lru_entry->contains_data) {  // page is not in RAM! Abort!
       die("WTF?\n");
    }
@@ -356,9 +363,9 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       for(size_t i = 0; i < ret; i++) {
          struct iocb *cb = (void*)ctx->events[i].obj;
          struct slab_callback *callback = (void*)cb->aio_data;
-         // assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
+         assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
          callback->lru_entry->contains_data = 1;
-         //callback->lru_entry->dirty = 0; // done before
+         callback->lru_entry->dirty = 0; // done before
          callback->io_cb(callback);
       }
 

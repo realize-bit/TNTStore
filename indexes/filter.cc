@@ -12,8 +12,12 @@ extern "C"
   int filter_add(filter_t *f, unsigned char* k) {
       uint64_t hash = *(uint64_t*)k;
     CuckooFilter<size_t, 12> *i = static_cast<CuckooFilter<size_t, 12> *>(f);
-    if (i->Add(hash) == cuckoofilter::Ok) 
+    uint64_t err = i->Add(hash);
+    if (err == cuckoofilter::Ok) 
       return 1;
+    else
+      std::cout<< err <<"\n";
+
     return 0;
   }
   int filter_contain(filter_t *f, unsigned char* k) {

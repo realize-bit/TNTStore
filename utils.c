@@ -51,6 +51,7 @@ void pin_me_on(int core) {
    if(!PINNING)
       return;
 
+   printf("CORE: %d\n", core);
    cpu_set_t cpuset;
    pthread_t thread = pthread_self();
 
