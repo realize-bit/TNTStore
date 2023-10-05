@@ -36,11 +36,12 @@ enum rbtree_node_color { RED, BLACK };
 typedef struct rbtree_node_t {
     void* key;
     tree_entry_t value;
-    unsigned char imm;
     struct rbtree_node_t* left;
     struct rbtree_node_t* right;
     struct rbtree_node_t* parent;
     enum rbtree_node_color color;
+    unsigned char imm;
+    // unsigned char gc;
 } *rbtree_node;
 
 typedef struct rbtree_t {
@@ -66,18 +67,24 @@ int pointer_cmp(void* left, void* right);
 
 rbtree rbtree_create();
 tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare);
-tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare);
+//tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare);
 tree_entry_t* rbtree_traverse_useq(rbtree t, int seq);
-void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare);
+rbtree_node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare);
 void rbtree_delete(rbtree t, void* key, compare_func compare);
-void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare);
+//void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare);
 
 void rbtree_print(rbtree t);
+
+void initQueue(rbtree_queue *queue);
+int isEmpty(rbtree_queue *queue);
+void enqueue(rbtree_queue *queue, rbtree_node n);
+rbtree_node dequeue(rbtree_queue *queue);
+
 
 struct rbtree_scan_tmp {
    struct rbtree_node_t *entries;
    size_t nb_entries;
 };
-struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare);
+// struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare);
 
 #endif

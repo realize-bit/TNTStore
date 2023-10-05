@@ -34,6 +34,7 @@ struct slab {
    uint64_t max;
    uint64_t seq;
    void *tree;
+   void *tree_node;
    void *filter;
 
    unsigned char imm;
@@ -54,6 +55,7 @@ struct slab {
    size_t nb_free_items, nb_free_items_in_memory;
    struct freelist_entry *freed_items, *freed_items_tail;
    btree_t *freed_items_recovery, *freed_items_pointed_to;
+   uint64_t update_ref;
 };
 
 /* This is the callback enqueued in the engine.

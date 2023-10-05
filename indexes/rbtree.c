@@ -252,28 +252,28 @@ node lookup_node(rbtree t, void* key, compare_func compare) {
    return n;
 }
 
-node lookup_closest_node(rbtree t, void* key, compare_func compare) {
-   node n = t->root;
-   int closest_seq = 0;
-   node closest = NULL;
-   while (n != NULL) {
-      int comp_result = compare(key, n->key);
-      if (comp_result <= 0) {
-         closest = n;
-         n = n->left;
-      } else {
-         assert(comp_result > 0);
-         //::JS::수정함
-         closest = n;
-         n = n->right;
-      }
-      if (closest->imm == 0)
-        break;
-   }
-   if (closest->imm)
-      printf("IMMUM, Don't touch me\n");
-   return closest;
-}
+//node lookup_closest_node(rbtree t, void* key, compare_func compare) {
+//   node n = t->root;
+//   int closest_seq = 0;
+//   node closest = NULL;
+//   while (n != NULL) {
+//      int comp_result = compare(key, n->key);
+//      if (comp_result <= 0) {
+//         closest = n;
+//         n = n->left;
+//      } else {
+//         assert(comp_result > 0);
+//         //::JS::수정함
+//         closest = n;
+//         n = n->right;
+//      }
+//      if (closest->imm == 0)
+//        break;
+//   }
+//   if (closest->imm)
+//      printf("IMMUM, Don't touch me\n");
+//   return closest;
+//}
 node traverse_node_useq(rbtree t, int key) {
    node n = NULL;
    if (key == 0) { // init
@@ -289,21 +289,21 @@ node traverse_node_useq(rbtree t, int key) {
    return n;
 }
 
-void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare) {
-   node n = lookup_node(t, old_key, compare);
-   n->imm = 1;
-   n->key = new_key;
-}
+// void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare) {
+   // node n = lookup_node(t, old_key, compare);
+   // n->imm = 1;
+   // n->key = new_key;
+// }
 
 tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
    node n = lookup_node(t, key, compare);
    return n == NULL ? NULL : &n->value;
 }
 
-tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare) {
-   node n = lookup_closest_node(t, key, compare);
-   return n == NULL ? NULL : &n->value;
-}
+//tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare) {
+//   node n = lookup_closest_node(t, key, compare);
+//   return n == NULL ? NULL : &n->value;
+//}
 
 tree_entry_t* rbtree_traverse_useq(rbtree t, int seq) {
    node n = traverse_node_useq(t, seq);
@@ -346,7 +346,7 @@ void replace_node(rbtree t, node oldn, node newn) {
    }
 }
 
-void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare) {
+node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare) {
    node inserted_node = new_node(key, value, RED, NULL, NULL);
    /* Classic hack to speed up the find & insert case */
    //if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
@@ -390,6 +390,7 @@ void rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
    }
    // insert_case1(t, inserted_node);
    // verify_properties(t);
+   return inserted_node;
 }
 
 void insert_case1(rbtree t, node n) {
@@ -629,19 +630,19 @@ void rbtree_fill_scan_up(rbtree t, node n, size_t max, struct rbtree_scan_tmp *r
    }
 }
 
-struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare) {
-   struct rbtree_scan_tmp res;
-   res.entries = malloc(n * sizeof(*res.entries));
-   res.nb_entries = 0;
-
-   node start = lookup_closest_node(t, key, compare);
-   if(start == NULL)
-      return res;
-   res.entries[0] = *start;
-   res.nb_entries++;
-
-   rbtree_fill_scan(t, start->right, n, &res);
-   rbtree_fill_scan_up(t, start, n, &res);
-
-   return res;
-}
+//struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare) {
+//   struct rbtree_scan_tmp res;
+//   res.entries = malloc(n * sizeof(*res.entries));
+//   res.nb_entries = 0;
+//
+//   node start = lookup_closest_node(t, key, compare);
+//   if(start == NULL)
+//      return res;
+//   res.entries[0] = *start;
+//   res.nb_entries++;
+//
+//   rbtree_fill_scan(t, start->right, n, &res);
+//   rbtree_fill_scan_up(t, start, n, &res);
+//
+//   return res;
+//}

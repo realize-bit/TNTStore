@@ -148,6 +148,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->key = key;
    s->seq = create_sequence;
    s->imm = 0;
+   s->update_ref = 0;
 
    if (load)
     s->batched_callbacks = calloc(32, sizeof(*s->batched_callbacks));
@@ -437,7 +438,8 @@ void add_item_async(struct slab_callback *callback) {
 }
 
 void add_in_tree_for_update(struct slab_callback *cb, void *item) {
-  struct slab *s = cb->slab;
+   struct slab *s = cb->slab;
+   unsigned char enqueue = 0;
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
@@ -466,14 +468,34 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    memory_index_add_utree(cb, item);
 
    if(!alrdy) {
+    // s->nb_items++;
     if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n", s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
     } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
         printf("FIFIFIFIF UPUP\n");
-
     }
-  }
+   } 
+  //else {
+    // 1. imm!=0인 곳에 데이터가 있어서, 거기를 업데이트 하는 상황
+    // 2. imm!=1인 곳에 데이터가 있는데, 두 리퀘스트가 동시에 업데이트 하려는 상황
+    // 1은 idx=-1이므로 여기에 도달하지 않는다.
+    // 2는 여기에 도달함
+    // 2의 상황이 좀 애매한데, 두 리퀘스트를 A, B라고 할 때,
+    //    (1) A완벽 수행 B 수행
+    //    (2) A수행 도중 B 수행이면?
+    // (1)과 (2)모두 여기 도달 가능함. 왜냐면 tnt_index_invalid는 인덱스 삭제가 아닌
+    // invalid 표시이기 때문에, (1)도 memory_index_delete_utree에서 삭제됨
+    // 지금까지 포착하기로는 다 (1)임. 그런데 (2)의 케이스라면 nb_items가 줄어들지 않는 문제가
+    // 발생 가능해서 이걸 수정이 필요하다. 발생하긴 하겠지? TODO::JS
 
+     //if (cb->fsst_slab)
+     // printf("DoubleReq %lu seq/idx %lu/%lu fsst %lu/%lu\n", key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+     //else 
+     // printf("DoubleReq %lu seq/idx %lu/%lu fsst NULL\n", key, cb->slab->seq, cb->slab_idx);
+
+  //}
+
+   s->update_ref--;
    if (key < s->min) {
       // printf("Min: %lu -> %lu\n", s->min, key);
       s->min = key;
@@ -482,9 +504,17 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       // printf("Max: %lu -> %lu\n", s->max, key);
       s->max = key;
    }
+   if ((s->max - s->min) > (s->nb_max_items * 10)
+       && s->imm && !s->update_ref 
+       && !((rbtree_node)s->tree_node)->imm) {
+      enqueue = 1;
+      ((rbtree_node)s->tree_node)->imm = 1;
+   }
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
+   if (enqueue)
+      rbq_enqueue(FSST, s->tree_node);
 
    if (cb->cb_cb == add_in_tree_for_update) {
     // printf("CBCB\n");
@@ -504,6 +534,8 @@ void remove_and_add_item_async(struct slab_callback *callback) {
       }
    }  else  {
       //FSST과정에서는 불가능 해야 하는(호출되면 안되는) 상황
+      // In-place update라 트리 수정이 불필요.
+      // 그냥 원래 위치에 데이터만 업데이트
      callback->slab_idx = callback->fsst_idx;
       // printf("UPDATE TREE\n");
   }

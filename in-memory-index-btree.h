@@ -35,7 +35,7 @@ btree_t* btree_tnt_create(void);
 // #define tnt_tree_lookup rbtree_worker_lookup
 // #define tnt_tree_update rbtree_tree_update
 #define tnt_tree_delete rbtree_worker_delete
-#define tnt_tree_scan rbtree_init_scan
+// #define tnt_tree_scan rbtree_init_scan
 
 #define tnt_index_lookup rbtree_tnt_lookup
 #define tnt_scan rbtree_tnt_scan
@@ -43,10 +43,12 @@ btree_t* btree_tnt_create(void);
 
 #define tnt_print rbtree_worker_print
 
+enum fsst_mode { GC, FSST };
+
 void rbtree_init(void);
 struct tree_entry *rbtree_worker_lookup(int worker_id, void *item);
 void rbtree_worker_delete(int worker_id, void *item);
-struct tree_scan rbtree_init_scan(void *item, size_t scan_size);
+// struct tree_scan rbtree_init_scan(void *item, size_t scan_size);
 
 void rbtree_tree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key);
 tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e);
@@ -57,6 +59,10 @@ void rbtree_node_update(uint64_t old_key, uint64_t new_key);
 index_entry_t *rbtree_tnt_lookup(void *item);
 struct index_scan rbtree_tnt_scan(void *item, uint64_t size);
 void rbtree_worker_print(void);
+
+int rbq_isEmpty(enum fsst_mode m);
+void rbq_enqueue(enum fsst_mode m, rbtree_node n);
+tree_entry_t *rbq_dequeue(enum fsst_mode m);
 
 #include "indexes/filter.h"
 

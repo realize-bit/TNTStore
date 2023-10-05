@@ -4,10 +4,62 @@
 extern int print;
 extern int load;
 
+static rbtree_queue *gc_queue, *fsst_queue;
+static pthread_lock_t gc_lock;
+static pthread_lock_t fsst_lock;
+
 static uint64_t get_prefix_for_item(char *item) {
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    return *(uint64_t*)item_key;
+}
+
+int rbq_isEmpty(enum fsst_mode m) {
+    rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    return queue->count == 0;
+}
+
+void rbq_enqueue(enum fsst_mode m, rbtree_node n) {
+    rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    queue_node *new = (queue_node *)malloc(sizeof(queue_node));
+    new->data = n;
+    new->next = NULL;
+    printf("mode: %d, enqueu: %lu\n", m, n->value.slab->seq);
+ 
+    W_LOCK(&lock);
+    if (isEmpty(queue))
+    {
+        queue->front = new;       
+    }
+    else
+    {
+        queue->rear->next = new;
+    }
+    queue->rear = new;
+    queue->count++;
+    W_UNLOCK(&lock);
+}
+
+tree_entry_t *rbq_dequeue(enum fsst_mode m) {
+    rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    rbtree_node data;
+    queue_node *ptr;
+    W_LOCK(&lock);
+    if (isEmpty(queue))
+    {
+        W_UNLOCK(&lock);
+        return 0;
+    }
+    ptr = queue->front;
+    data = ptr->data;
+    queue->front = ptr->next;
+    queue->count--;
+    W_UNLOCK(&lock);
+    free(ptr);    
+    
+    return &data->value;
 }
 
 /* In memory RB-Tree */
@@ -17,9 +69,11 @@ tree_entry_t *rbtree_worker_lookup(int worker_id, void *item) {
    return rbtree_lookup(trees_location, (void*)get_prefix_for_item(item), pointer_cmp);
 }
 void rbtree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
+   rbtree_node n;
    W_LOCK(&trees_location_lock);
-   rbtree_insert(trees_location, (void*)e->key, e, pointer_cmp);
+   n = rbtree_insert(trees_location, (void*)e->key, e, pointer_cmp);
    W_UNLOCK(&trees_location_lock);
+   e->slab->tree_node = (void*)n;
 }
 void rbtree_worker_delete(int worker_id, void *item) {
    W_LOCK(&trees_location_lock);
@@ -50,7 +104,10 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
 
       W_LOCK(&s->tree_lock);
       if (s->imm == 0) {
+        s->update_ref++;
         if (old_e && s == old_e->slab) {
+          // IN-PLACE UPDATE
+          // old_e->slab->update_ref++;
           *idx = -1;
           W_UNLOCK(&s->tree_lock);
           break;
@@ -241,6 +298,7 @@ int rbtree_tnt_invalid(void *item) {
 
    R_LOCK(&trees_location_lock);
    while (n != NULL) {
+      unsigned char enqueue = 0;
       struct slab *s = n->value.slab;
       int comp_result;
 
@@ -249,11 +307,21 @@ int rbtree_tnt_invalid(void *item) {
         filter_contain(s->filter, (unsigned char *)&key)) {
          if(btree_worker_invalid_utree(s->tree, item)) {
             s->nb_items--;
+            if (s->nb_items < s->nb_max_items/2 
+                && s->imm && !s->update_ref
+                && !((rbtree_node)s->tree_node)->imm) {
+              enqueue = 1;
+              ((rbtree_node)s->tree_node)->imm = 1;
+              printf("GC: imm-%d, nb_items-%lu, update_ref-%lu\n",
+                     s->imm, s->nb_items, s->update_ref);
+            }
             count++;
          }
       }
       comp_result = pointer_cmp((void*)key, n->key);
       W_UNLOCK(&s->tree_lock);
+      if (enqueue)
+        rbq_enqueue(GC, n);
 
       if (comp_result <= 0) {
          n = n->left;
@@ -277,53 +345,59 @@ void rbtree_worker_print(void) {
  * Returns up to scan_size keys >= item.key.
  * If item is not in the database, this will still return up to scan_size keys > item.key.
  */
-struct tree_scan rbtree_init_scan(void *item, size_t scan_size) {
-   size_t nb_workers = get_nb_workers();
-
-   struct rbtree_scan_tmp *res = malloc(nb_workers * sizeof(*res));
-   for(size_t w = 0; w < nb_workers; w++) {
-      R_LOCK(&trees_location_lock);
-      res[w] = rbtree_lookup_n(trees_location, (void*)get_prefix_for_item(item), scan_size, pointer_cmp);
-      R_UNLOCK(&trees_location_lock);
-   }
-
-   struct tree_scan scan_res;
-   scan_res.entries = malloc(scan_size * sizeof(*scan_res.entries));
-   scan_res.hashes = malloc(scan_size * sizeof(*scan_res.hashes));
-   scan_res.nb_entries = 0;
-
-   size_t *positions = calloc(nb_workers, sizeof(*positions));
-   while(scan_res.nb_entries < scan_size) {
-      size_t min_worker = nb_workers;
-      struct rbtree_node_t *min = NULL;
-      for(size_t w = 0; w < nb_workers; w++) {
-         if(res[w].nb_entries <= positions[w]) {
-            continue; // no more item to read in that rbtree
-         } else {
-            struct rbtree_node_t *current = &res[w].entries[positions[w]];
-            if(!min || pointer_cmp(min->key, current->key) > 0) {
-               min = current;
-               min_worker = w;
-            }
-         }
-      }
-      if(min_worker == nb_workers)
-         break; // no worker has any scannable item left
-      positions[min_worker]++;
-      scan_res.entries[scan_res.nb_entries] = min->value;
-      scan_res.hashes[scan_res.nb_entries] = (uint64_t)min->key;
-      scan_res.nb_entries++;
-   }
-   for(size_t w = 0; w < nb_workers; w++) {
-      free(res[w].entries);
-   }
-   free(res);
-   free(positions);
-   return scan_res;
-}
+//struct tree_scan rbtree_init_scan(void *item, size_t scan_size) {
+//   size_t nb_workers = get_nb_workers();
+//
+//   struct rbtree_scan_tmp *res = malloc(nb_workers * sizeof(*res));
+//   for(size_t w = 0; w < nb_workers; w++) {
+//      R_LOCK(&trees_location_lock);
+//      res[w] = rbtree_lookup_n(trees_location, (void*)get_prefix_for_item(item), scan_size, pointer_cmp);
+//      R_UNLOCK(&trees_location_lock);
+//   }
+//
+//   struct tree_scan scan_res;
+//   scan_res.entries = malloc(scan_size * sizeof(*scan_res.entries));
+//   scan_res.hashes = malloc(scan_size * sizeof(*scan_res.hashes));
+//   scan_res.nb_entries = 0;
+//
+//   size_t *positions = calloc(nb_workers, sizeof(*positions));
+//   while(scan_res.nb_entries < scan_size) {
+//      size_t min_worker = nb_workers;
+//      struct rbtree_node_t *min = NULL;
+//      for(size_t w = 0; w < nb_workers; w++) {
+//         if(res[w].nb_entries <= positions[w]) {
+//            continue; // no more item to read in that rbtree
+//         } else {
+//            struct rbtree_node_t *current = &res[w].entries[positions[w]];
+//            if(!min || pointer_cmp(min->key, current->key) > 0) {
+//               min = current;
+//               min_worker = w;
+//            }
+//         }
+//      }
+//      if(min_worker == nb_workers)
+//         break; // no worker has any scannable item left
+//      positions[min_worker]++;
+//      scan_res.entries[scan_res.nb_entries] = min->value;
+//      scan_res.hashes[scan_res.nb_entries] = (uint64_t)min->key;
+//      scan_res.nb_entries++;
+//   }
+//   for(size_t w = 0; w < nb_workers; w++) {
+//      free(res[w].entries);
+//   }
+//   free(res);
+//   free(positions);
+//   return scan_res;
+//}
 
 void rbtree_init(void) {
    trees_location = malloc(sizeof(*trees_location));
    trees_location = rbtree_create();
+   gc_queue = malloc(sizeof(rbtree_queue));
+   fsst_queue = malloc(sizeof(rbtree_queue));
+   initQueue(gc_queue);
+   initQueue(fsst_queue);
    INIT_LOCK(&trees_location_lock, NULL);
+   INIT_LOCK(&gc_lock, NULL);
+   INIT_LOCK(&fsst_lock, NULL);
 }

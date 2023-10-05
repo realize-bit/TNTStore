@@ -11,8 +11,8 @@ int main(int argc, char **argv) {
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
-      .nb_items_in_db = 100000000LU,
-      // .nb_items_in_db = 10000000LU,
+      // .nb_items_in_db = 100000000LU,
+      .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
    };
@@ -45,6 +45,8 @@ int main(int argc, char **argv) {
       slab_workers_init(nb_disks, nb_workers_per_disk);
    } stop_timer("Init found %lu elements", get_database_size());
 
+   fsst_worker_init();
+
    /* Add missing items if any */
    repopulate_db(&w);
    load = 0;
@@ -64,10 +66,10 @@ int main(int argc, char **argv) {
       // ycsb_c_zipfian,
    };
 
-      sleep(5);
-      make_fsst();
-      sleep(5);
-      cache_hit = 0;
+      // sleep(5);
+      // make_fsst();
+      // sleep(5);
+      // cache_hit = 0;
 
    foreach(workload, workloads) {
       if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
@@ -76,7 +78,7 @@ int main(int argc, char **argv) {
          w.nb_requests = 100000000LU;
       }
       // w.nb_requests = 50000000LU;
-      // w.nb_requests = 10000000LU;
+      w.nb_requests = 5000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;

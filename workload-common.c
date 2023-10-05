@@ -40,25 +40,40 @@ char *create_workload_item(struct workload *w) {
  * Fill the DB with missing items
  */
 void add_in_tree(struct slab_callback *cb, void *item) {
-  struct slab *s = cb->slab;
+   struct slab *s = cb->slab;
+   unsigned char enqueue = 0;
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
 
    W_LOCK(&s->tree_lock);
    memory_index_add_utree(cb, item);
+   // s->nb_items++;
    if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
     printf("Fail adding to filter %p %lu %lu\n", s->filter, key, s->nb_items);
-  } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
+   } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
         printf("FIFIFIFIF\n");
-  }
+   }
+
+   s->update_ref--;
    if (key < s->min)
       s->min = key;
    if (key > s->max)
       s->max = key;
+   if ((s->max - s->min) > (s->nb_max_items * 10)
+       && s->imm && !s->update_ref
+       && !((rbtree_node)s->tree_node)->imm) {
+      enqueue = 1;
+      ((rbtree_node)s->tree_node)->imm = 1;
+   }
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
+
+   if (enqueue)
+      rbq_enqueue(FSST, s->tree_node);
+
+
 
    if (!cb->cb_cb || cb->cb_cb == add_in_tree) {
     free(cb->item);
