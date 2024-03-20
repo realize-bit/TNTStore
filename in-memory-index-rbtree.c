@@ -127,7 +127,6 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
       do {
         R_LOCK(&s->tree_lock);
         comp_result = pointer_cmp((void*)key, prev->key);
-        R_UNLOCK(&s->tree_lock);
         if (comp_result <= 0) {
          // n->imm = 1;
           n = prev->left;
@@ -135,11 +134,21 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
           assert(comp_result > 0);
           n = prev->right;
         }
+        R_UNLOCK(&s->tree_lock);
         if (!n) {
+	    int cur_nb_elements = t->nb_elements;
             R_UNLOCK(&trees_location_lock);
-            NOP10();
-            R_LOCK(&trees_location_lock);
-        }
+	    while(1) {
+		if(cur_nb_elements >= t->nb_elements) { // Queue is full, wait
+	            NOP10();
+	            if(!PINNING)
+                        usleep(2);
+                } else {
+                    break;
+                }
+	    }
+	    R_LOCK(&trees_location_lock);
+	}
       } while (!n);
    }
    R_UNLOCK(&trees_location_lock);

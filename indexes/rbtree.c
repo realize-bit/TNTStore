@@ -370,7 +370,7 @@ node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
          if (comp_result <= 0) {
             if (n->left == NULL) {
                n->left = inserted_node;
-               t->nb_elements++;
+	       __sync_fetch_and_add(&t->nb_elements, 1);
                break;
             } else {
                n = n->left;
@@ -379,7 +379,7 @@ node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
             assert (comp_result > 0);
             if (n->right == NULL) {
                n->right = inserted_node;
-               t->nb_elements++;
+	       __sync_fetch_and_add(&t->nb_elements, 1);
                break;
             } else {
                n = n->right;

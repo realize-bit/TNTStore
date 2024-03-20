@@ -5,24 +5,25 @@ int load = 1;
 extern int cache_hit;
 
 int main(int argc, char **argv) {
-   int nb_disks, nb_workers_per_disk;
+   int nb_disks, nb_workers_per_disk, nb_distributors_per_disk;
    declare_timer;
 
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
-      // .nb_items_in_db = 100000000LU,
-      .nb_items_in_db = 5000000LU,
+      .nb_items_in_db = 100000000LU,
+      //.nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
    };
 
 
    /* Parsing of the options */
-   if(argc < 3)
-      die("Usage: ./main <nb disks> <nb workers per disk>\n\tData is stored in %s\n", PATH);
+   if(argc < 4)
+      die("Usage: ./main <nb disks> <nb workers per disk> <nb distributors>\n\tData is stored in %s\n", PATH);
    nb_disks = atoi(argv[1]);
    nb_workers_per_disk = atoi(argv[2]);
+   nb_distributors_per_disk = atoi(argv[3]);
 
    /* Pretty printing useful info */
    printf("# Configuration:\n");
@@ -42,7 +43,7 @@ int main(int argc, char **argv) {
 
    /* Recover database */
    start_timer {
-      slab_workers_init(nb_disks, nb_workers_per_disk);
+      slab_workers_init(nb_disks, nb_workers_per_disk, nb_distributors_per_disk);
    } stop_timer("Init found %lu elements", get_database_size());
 
    fsst_worker_init();
@@ -61,9 +62,12 @@ int main(int argc, char **argv) {
       //ycsb_a_uniform, ycsb_b_uniform, ycsb_c_uniform,
       //ycsb_a_zipfian, ycsb_b_zipfian, ycsb_c_zipfian,
       // ycsb_e_uniform, ycsb_e_zipfian, // Scans
-       ycsb_a_uniform, ycsb_a_zipfian,
-      // ycsb_c_uniform, ycsb_c_zipfian,
-      // ycsb_c_zipfian,
+      // ycsb_a_uniform, 
+      // ycsb_a_zipfian,
+      // ycsb_b_uniform, 
+      // ycsb_b_zipfian,
+      // ycsb_c_uniform, 
+       ycsb_c_zipfian,
    };
 
       // sleep(5);
@@ -78,7 +82,7 @@ int main(int argc, char **argv) {
          w.nb_requests = 100000000LU;
       }
       // w.nb_requests = 50000000LU;
-      w.nb_requests = 5000000LU;
+      // w.nb_requests = 5000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;

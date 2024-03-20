@@ -92,7 +92,7 @@ void *repopulate_db_worker(void *pdata) {
    declare_periodic_count;
    struct rebuild_pdata *data = pdata;
 
-   pin_me_on(get_nb_workers()*2 + data->id);
+   pin_me_on(get_nb_workers() + get_nb_distributors() + data->id);
 
    size_t *pos = data->pos;
    struct workload *w = data->w;
@@ -282,7 +282,7 @@ void* do_workload_thread(void *pdata) {
    struct thread_data *d = pdata;
 
    init_seed();
-   pin_me_on(get_nb_workers()*2 + d->id);
+   pin_me_on(get_nb_workers() + get_nb_distributors() + d->id);
    pthread_barrier_wait(&barrier);
 
    d->workload->api->launch(d->workload, d->benchmark);

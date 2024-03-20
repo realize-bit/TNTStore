@@ -56,7 +56,7 @@ void pin_me_on(int core) {
    pthread_t thread = pthread_self();
 
    CPU_ZERO(&cpuset);
-   CPU_SET(core, &cpuset);
+   CPU_SET(core*2, &cpuset);
 
    int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
    if (s != 0)

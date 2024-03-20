@@ -26,11 +26,15 @@
  */
 
 static int nb_workers = 0;
+static int nb_distributors = 0;
 static int nb_disks = 0;
 static int nb_workers_launched = 0;
 static int nb_workers_ready = 0;
 
 // static struct pagecache *pagecaches __attribute__((aligned(64)));
+int get_nb_distributors(void) {
+   return nb_distributors;
+}
 
 int get_nb_workers(void) {
    return nb_workers;
@@ -133,11 +137,11 @@ static uint64_t get_hash_for_item(char *item) {
 /* Requests are statically attributed to workers using this function */
 struct slab_context *get_slab_context(void *item) {
    uint64_t hash = get_hash_for_item(item);
-   return &slab_contexts[(hash)%get_nb_workers()];
+   return &slab_contexts[(hash)%get_nb_distributors()];
 }
 
 struct slab_context *get_slab_context_uidx(uint64_t idx) {
-   return &slab_contexts[((idx/4)%get_nb_workers())+get_nb_workers()];
+   return &slab_contexts[((idx/4)%get_nb_workers())+get_nb_distributors()];
 }
 
 size_t get_item_size(char *item) {
@@ -517,19 +521,20 @@ static void *worker_distributor_init(void *pdata) {
    return NULL;
 }
 
-void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
+void slab_workers_init(int _nb_disks, int nb_workers_per_disk, int nb_distributors_per_disk) {
    size_t max_pending_callbacks = MAX_NB_PENDING_CALLBACKS_PER_WORKER;
    nb_disks = _nb_disks;
    nb_workers = nb_disks * nb_workers_per_disk;
+   nb_distributors = nb_disks * nb_distributors_per_disk;
 
    // memory_index_init();
    create_root_slab();
 
 
    pthread_t t;
-   slab_contexts = calloc(nb_workers*2, sizeof(*slab_contexts));
+   slab_contexts = calloc(nb_workers + nb_distributors, sizeof(*slab_contexts));
    // pagecaches = calloc(nb_workers, sizeof(*pagecaches));
-   for(size_t w = 0; w < nb_workers; w++) {
+   for(size_t w = 0; w < nb_distributors; w++) {
       struct slab_context *ctx = &slab_contexts[w];
       ctx->worker_id = w;
       ctx->max_pending_callbacks = max_pending_callbacks;
@@ -537,7 +542,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
       pthread_create(&t, NULL, worker_distributor_init, ctx);
    }
 
-   for(size_t w = nb_workers; w < nb_workers*2; w++) {
+   for(size_t w = nb_distributors; w < nb_distributors+nb_workers; w++) {
       struct slab_context *ctx = &slab_contexts[w];
       ctx->worker_id = w;
       ctx->max_pending_callbacks = max_pending_callbacks;
@@ -545,7 +550,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk) {
       pthread_create(&t, NULL, worker_slab_init, ctx);
    }
 
-   while(*(volatile int*)&nb_workers_ready != nb_workers*2) {
+   while(*(volatile int*)&nb_workers_ready != nb_workers+nb_distributors) {
       NOP10();
     }
 }
