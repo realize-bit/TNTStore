@@ -48,6 +48,8 @@ typedef struct rbtree_t {
     rbtree_node root;
     rbtree_node last_visited_node;
     int nb_elements;
+    int empty_elements;
+    int total_ref_count;
 } *rbtree;
 
 typedef struct queue_node_t {

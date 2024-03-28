@@ -12,30 +12,37 @@
 //  */
 //};
 
-//struct dna_block {
-//  // buffer: string
-//  // restarts: vector
-//  // counter: int
-//  // finished: bool
-//  // last_key: string
-//  int size;
-//  char buffer[];
-//};
-//
-//struct cell {
-//  int fd;
-//  uint64_t offset;
-//  struct dna_block data;
-//  struct dna_block index;
-//  // last_key;
-//  uint64_t num_entries;
-//  bool closed;
-//  bool pending_index_entry;
-//};
+
+
+struct fsst_file {
+   int fd;
+   uint64_t level;
+   uint64_t seq;
+
+   uint64_t largest;
+   uint64_t smallest;
+
+   uint64_t ioff_start;
+   uint64_t file_size;
+   uint64_t fsst_items;
+
+   void *index_buf;
+   void *page;
+   struct fsst_file *sibling;
+   struct fsst_file *child;
+};
+
+struct fsst_index {
+   uint64_t key;
+   uint64_t off;
+   uint64_t sz;
+
+};
 
 
 int make_fsst(void);
 tree_entry_t *pick_garbage_node();
+void read_item_async_from_fsst(struct slab_callback *callback);
 void flush_batched_load(void);
 void fsst_worker_init(void);
 

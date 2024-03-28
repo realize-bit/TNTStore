@@ -119,4 +119,9 @@ extern "C"
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
       delete b;
    }
+    void btree_all_free(btree_t *t) {
+      btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
+      b->erase(b->begin(), b->end());
+      delete b;
+   }
 }

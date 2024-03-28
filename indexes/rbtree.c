@@ -14,8 +14,7 @@ The above copyright notice and this permission notice shall be
 included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
@@ -31,6 +30,38 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 #include <stdlib.h>
 #include <stdio.h>
 
+struct slab {
+   struct slab_context *ctx;
+   struct slab_callback **batched_callbacks;
+
+   uint64_t key;
+   uint64_t min;
+   uint64_t max;
+   uint64_t seq;
+   void *tree;
+   void *tree_node;
+   void *filter;
+
+   unsigned char imm;
+   pthread_rwlock_t tree_lock;
+
+   unsigned char batch_idx;
+   unsigned char nb_batched;
+
+   //TODO::JS::구조체 수정
+   size_t item_size;
+   size_t nb_items;   // Number of non freed items
+   size_t last_item;  // Total number of items, including freed
+   size_t nb_max_items;
+
+   int fd;
+   size_t size_on_disk;
+
+   size_t nb_free_items, nb_free_items_in_memory;
+   struct freelist_entry *freed_items, *freed_items_tail;
+   btree_t *freed_items_recovery, *freed_items_pointed_to;
+   uint64_t update_ref;
+};
 
 typedef rbtree_node node;
 typedef enum rbtree_node_color color;
@@ -215,6 +246,7 @@ rbtree rbtree_create() {
    t->root = NULL;
    t->last_visited_node = NULL;
    t->nb_elements = 0;
+   t->empty_elements = 0;
    verify_properties(t);
    rbqueue = malloc(sizeof(rbtree_queue));
    initQueue(rbqueue);
@@ -348,6 +380,7 @@ void replace_node(rbtree t, node oldn, node newn) {
 
 node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare) {
    node inserted_node = new_node(key, value, RED, NULL, NULL);
+   uint64_t level = 0;
    /* Classic hack to speed up the find & insert case */
    //if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
    //   t->last_visited_node->value = *value;
@@ -385,9 +418,12 @@ node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
                n = n->right;
             }
          }
+         level++;
       }
       inserted_node->parent = n;
    }
+   value->level = level;
+   inserted_node->value = *value;
    // insert_case1(t, inserted_node);
    // verify_properties(t);
    return inserted_node;
@@ -579,7 +615,10 @@ void print2DUtil(node n, int space)
     printf("\n");
     for (int i = 1; i < space; i++)
         printf(" ");
-    printf("%lu,%lu,%d\n", n->key, n->value.seq, n->imm);
+    if (!n->imm)
+      printf("%lu,%lu:%lu-%lu,%d,%lu\n", n->value.seq, n->value.level, n->value.slab->min, n->value.slab->max, n->imm, n->value.touch);
+    else
+      printf("%lu,%lu:0-0,%d,%lu\n", n->value.seq, n->value.level, n->imm, n->value.touch);
  
     // Process left child
     print2DUtil(n->left, space);

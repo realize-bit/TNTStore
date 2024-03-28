@@ -3,6 +3,7 @@
 
 extern int print;
 extern int load;
+int ntree;
 
 static rbtree_queue *gc_queue, *fsst_queue;
 static pthread_lock_t gc_lock;
@@ -86,6 +87,7 @@ void rbtree_tree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key)
          .seq = s->seq,
          .key = tmp_key,
          .slab = s,
+         .touch = 0,
    };
    s->tree = tree;
    s->filter = filter;
@@ -105,6 +107,8 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
       W_LOCK(&s->tree_lock);
       if (s->imm == 0) {
         s->update_ref++;
+        n->value.touch++;
+        __sync_fetch_and_add(&trees_location->total_ref_count, 1);
         if (old_e && s == old_e->slab) {
           // IN-PLACE UPDATE
           // old_e->slab->update_ref++;
@@ -207,23 +211,46 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
    while (n != NULL) {
       struct slab *s = n->value.slab;
       int comp_result;
+      int enqueue = 0;
       // if (key >= s->min && key <= s->max && s->seq >= cur_seq) {
       // TODO::JS::나중에 필터를 없애버리고, 없으면 아예 찾지 않도록 수정해야함
       R_LOCK(&s->tree_lock);
       // printf("filter: %p, (%lu)\n", s->filter, (key>>16)%2);
-      if (s->min != -1 && 
-        filter_contain(s->filter, (unsigned char *)&key)) {
+      if (s->min != -1) {
+        if (filter_contain(s->filter, (unsigned char *)&key)) {
          count++;
          tmp = btree_worker_lookup_utree(s->tree, item);
          if (tmp) {
           e = tmp;
+          if (!TEST_INVAL(e->slab_idx)) {
+            n->value.touch++;
+            __sync_fetch_and_add(&trees_location->total_ref_count, 1);
+          }
          } 
          // int test =filter_contain((filter_t *)s->filter, (unsigned char *)&key);
          // if (load == 0 && tmp && !test)
           // printf("WHATDU2 %d %p\n", test, (filter_t *)s->filter);
+        }
+        if (s->imm && !((rbtree_node)s->tree_node)->imm 
+          && !s->update_ref) {
+          uint64_t nb_update = s->last_item - s->nb_items;
+          uint64_t nb_thresh = trees_location->total_ref_count / 
+            ((trees_location->nb_elements - trees_location->empty_elements) * 2);
+
+          uint64_t s_ref = n->value.touch - nb_update;
+          if (s_ref < nb_thresh)  {
+            enqueue = 1;
+            ((rbtree_node)s->tree_node)->imm = 1;
+            printf("GC: seq-%lu, nb_items-%lu, nb_thresh-%lu, s_ref-%lu total_ref-%lu\n",
+                  s->seq, s->nb_items, nb_thresh, s_ref, trees_location->total_ref_count);
+          }
+        }
       }
       comp_result = pointer_cmp((void*)key, n->key);
       R_UNLOCK(&s->tree_lock);
+      if (enqueue) 
+        rbq_enqueue(GC, n);
+
       if (comp_result <= 0) {
          n = n->left;
       } else {
@@ -307,7 +334,7 @@ int rbtree_tnt_invalid(void *item) {
 
    R_LOCK(&trees_location_lock);
    while (n != NULL) {
-      unsigned char enqueue = 0;
+      unsigned int enqueue = 0;
       struct slab *s = n->value.slab;
       int comp_result;
 
@@ -316,12 +343,14 @@ int rbtree_tnt_invalid(void *item) {
         filter_contain(s->filter, (unsigned char *)&key)) {
          if(btree_worker_invalid_utree(s->tree, item)) {
             s->nb_items--;
-            if (s->nb_items < s->nb_max_items/2 
+            __sync_fetch_and_sub(&trees_location->total_ref_count, 1);
+            if (s->nb_items < s->nb_max_items/20
+            // if (s->nb_items == 0
                 && s->imm && !s->update_ref
                 && !((rbtree_node)s->tree_node)->imm) {
               enqueue = 1;
               ((rbtree_node)s->tree_node)->imm = 1;
-              printf("GC: imm-%d, nb_items-%lu, update_ref-%lu\n",
+              printf("FSST: imm-%d, nb_items-%lu, update_ref-%lu\n",
                      s->imm, s->nb_items, s->update_ref);
             }
             count++;
@@ -329,8 +358,8 @@ int rbtree_tnt_invalid(void *item) {
       }
       comp_result = pointer_cmp((void*)key, n->key);
       W_UNLOCK(&s->tree_lock);
-      if (enqueue)
-        rbq_enqueue(GC, n);
+      if (enqueue) 
+        rbq_enqueue(FSST, n);
 
       if (comp_result <= 0) {
          n = n->left;
@@ -398,6 +427,28 @@ void rbtree_worker_print(void) {
 //   free(positions);
 //   return scan_res;
 //}
+void inc_empty_tree(){
+  // W_LOCK(&trees_location_lock);
+  __sync_fetch_and_add(&trees_location->empty_elements, 1);
+  // W_UNLOCK(&trees_location_lock);
+}
+
+int get_number_of_btree() {
+  int n;
+  R_LOCK(&trees_location_lock);
+  n = trees_location->nb_elements - trees_location->empty_elements;
+  R_UNLOCK(&trees_location_lock);
+  return n;
+}
+
+uint64_t get_total_reference() {
+  uint64_t n;
+  R_LOCK(&trees_location_lock);
+  n = trees_location->total_ref_count;
+  R_UNLOCK(&trees_location_lock);
+  return n;
+}
+
 
 void rbtree_init(void) {
    trees_location = malloc(sizeof(*trees_location));

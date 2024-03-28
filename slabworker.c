@@ -31,6 +31,8 @@ static int nb_disks = 0;
 static int nb_workers_launched = 0;
 static int nb_workers_ready = 0;
 
+int try_fsst = 0;
+
 // static struct pagecache *pagecaches __attribute__((aligned(64)));
 int get_nb_distributors(void) {
    return nb_distributors;
@@ -59,7 +61,8 @@ struct slab_context {
    size_t max_pending_callbacks;                         // Maximum number of enqueued requests
    struct pagecache *pagecache __attribute__((aligned(64)));
    struct io_context *io_ctx;
-   uint64_t rdt;                                         // Latest timestamp
+   uint64_t rdt;                         // Latest timestamp
+   char *fsst_idx;
 } *slab_contexts;
 
 /* A file is only managed by 1 worker. File => worker function. */
@@ -266,6 +269,13 @@ void kv_update_async_no_lookup(struct slab_callback *callback, struct slab *s, s
    callback->slab_idx = slab_idx;
    return enqueue_slab_callback(ctx, UPDATE_NO_LOOKUP, callback);
 }
+void kv_fsst_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx) {
+   struct slab_context *ctx = get_slab_context_uidx(slab_idx);
+   callback->ctx = ctx;
+   callback->slab = s;
+   callback->slab_idx = slab_idx;
+   return enqueue_slab_callback(ctx, UPDATE_NO_LOOKUP, callback);
+}
 /*
  * Worker context
  */
@@ -285,8 +295,8 @@ again:
 
       index_entry_t *e = NULL;
       // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
-      if(action != READ_NO_LOOKUP 
-      && action != ADD_NO_LOOKUP && action != UPDATE_NO_LOOKUP)
+      if(action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP 
+         && action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
          // e = memory_index_lookup(ctx->worker_id, callback->item);
          e = tnt_index_lookup(callback->item);
       
@@ -307,9 +317,12 @@ again:
             break;
          case READ:
             if(!e) { // Item is not in DB
-               callback->slab = NULL;
-               callback->slab_idx = -1;
-               callback->cb(callback, NULL);
+                __sync_add_and_fetch(&try_fsst, 1);
+               read_item_async_from_fsst(callback);
+               // callback->slab = NULL;
+               // callback->slab_idx = -1;
+               callback->cb(callback, callback->item);
+               break;
             } else {
                callback->slab = e->slab;
                callback->slab_idx = GET_SIDX(e->slab_idx);
@@ -328,6 +341,12 @@ again:
             }
             break;
          case UPDATE:
+            if (!e) {
+               callback->slab = NULL;
+               callback->slab_idx = -1;
+               callback->cb(callback, NULL);
+               break;
+            }
             /*
             if(!e) {
                callback->slab = NULL;
@@ -355,18 +374,19 @@ again:
             }
             */
 
-            if (!e) {
-              printf("WHAT? %lu\n", key);
-              if (callback->fsst_slab) {
-                printf("SEQ, NB ITEMs, IMM %lu, %lu, %d\n", callback->fsst_slab->seq, callback->fsst_slab->nb_items, callback->fsst_slab->imm);
-                index_entry_t *tmp = btree_worker_lookup_utree(callback->fsst_slab->tree, callback->item);
-                printf("index %p\n", tmp);
-                if (!filter_contain(callback->fsst_slab->filter, (unsigned char *)&key)) {
-                  printf("Holy Moly\n");
-                }
-              }
-              // tnt_print();
-            }
+            // FOR DEBUG
+            //if (!e) {
+            //  printf("WHAT? %lu\n", key);
+            //  if (callback->fsst_slab) {
+            //    printf("SEQ, NB ITEMs, IMM %lu, %lu, %d\n", callback->fsst_slab->seq, callback->fsst_slab->nb_items, callback->fsst_slab->imm);
+            //    index_entry_t *tmp = btree_worker_lookup_utree(callback->fsst_slab->tree, callback->item);
+            //    printf("index %p\n", tmp);
+            //    if (!filter_contain(callback->fsst_slab->filter, (unsigned char *)&key)) {
+            //      printf("Holy Moly\n");
+            //    }
+            //  }
+            //  // tnt_print();
+            //}
             // else
               // callback->slab_idx = -1;
 
@@ -376,6 +396,8 @@ again:
             }
 
             remove_and_add_item_async(callback);
+            break;
+         case FSST_NO_LOOKUP:
             break;
          case ADD_OR_UPDATE:
             if(!e) {
@@ -445,6 +467,8 @@ static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
 
 static void *worker_slab_init(void *pdata) {
    struct slab_context *ctx = pdata;
+   int ret;
+
 
    __sync_add_and_fetch(&nb_workers_launched, 1);
 
@@ -461,6 +485,9 @@ static void *worker_slab_init(void *pdata) {
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
 
     __sync_add_and_fetch(&nb_workers_ready, 1);
+
+   // syscall(SYS_ioprio_set, IOPRIO_WHO_PROCESS, x, 
+            // IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 0));
 
    /* Main loop: do IOs and process enqueued requests */
    declare_breakdown;
@@ -494,6 +521,7 @@ static void *worker_slab_init(void *pdata) {
 static void *worker_distributor_init(void *pdata) {
    struct slab_context *ctx = pdata;
 
+   ctx->fsst_idx = aligned_alloc(PAGE_SIZE, 64*PAGE_SIZE);
    __sync_add_and_fetch(&nb_workers_launched, 1);
 
    pid_t x = syscall(__NR_gettid);

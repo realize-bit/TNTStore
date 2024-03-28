@@ -63,7 +63,7 @@ struct slab {
  * item = page on disk (in the page cache)
  */
 typedef void (slab_cb_t)(struct slab_callback *, void *item);
-enum slab_action { ADD, UPDATE, DELETE, READ, READ_NO_LOOKUP, ADD_OR_UPDATE, ADD_NO_LOOKUP, UPDATE_NO_LOOKUP };
+enum slab_action { ADD, UPDATE, DELETE, READ, READ_NO_LOOKUP, ADD_OR_UPDATE, ADD_NO_LOOKUP, UPDATE_NO_LOOKUP, FSST_NO_LOOKUP };
 struct slab_callback {
    slab_cb_t *cb;
    slab_cb_t *cb_cb;
