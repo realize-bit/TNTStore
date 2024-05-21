@@ -61,8 +61,10 @@ struct index_scan rbtree_tnt_scan(void *item, uint64_t size);
 void rbtree_worker_print(void);
 
 int rbq_isEmpty(enum fsst_mode m);
+int rbq_count(enum fsst_mode m);
 void rbq_enqueue(enum fsst_mode m, rbtree_node n);
 tree_entry_t *rbq_dequeue(enum fsst_mode m);
+tree_entry_t *rbq_front(enum fsst_mode m);
 
 #include "indexes/filter.h"
 

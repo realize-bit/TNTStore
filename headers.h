@@ -26,8 +26,10 @@
 #include "utils.h"
 #include "items.h"
 
+
 #include "pagecache.h"
 #include "in-memory-index-generic.h"
+#include "fsst.h"
 #include "ioengine.h"
 #include "slab.h"
 #include "slabworker.h"
@@ -37,5 +39,4 @@
 
 #include "workload-common.h"
 
-#include "fsst.h"
 #endif

@@ -107,6 +107,7 @@ static void process_linked_callbacks(struct io_context *ctx) {
  */
 static void worker_do_io(struct io_context *ctx) {
    size_t pending = ctx->sent_io - ctx->processed_io;
+   int ret = 0;
    if(pending == 0) {
       ctx->ios_sent_to_disk = 0;
       return;
@@ -130,7 +131,11 @@ static void worker_do_io(struct io_context *ctx) {
    }
 
    // Submit requests to the kernel
-   int ret = io_submit(ctx->ctx, pending, ctx->iocbs);
+   ret = io_submit(ctx->ctx, pending, ctx->iocbs);
+   // while (ret < pending) {
+   //    printf("Couldn't submit all io requests! %d submitted / %lu (%lu sent, %lu processed)\n", ret, pending, ctx->sent_io, ctx->processed_io);
+   //    ret += io_submit(ctx->ctx, pending-ret, ctx->iocbs + ret);
+   // }
    if (ret != pending)
       perr("Couldn't submit all io requests! %d submitted / %lu (%lu sent, %lu processed)\n", ret, pending, ctx->sent_io, ctx->processed_io);
    ctx->ios_sent_to_disk = ret;
@@ -344,8 +349,13 @@ void worker_ioengine_get_completed_ios(struct io_context *ctx) {
 
    start_debug_timer {
       ret = io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret, ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
-      if(ret != ctx->ios_sent_to_disk)
+      // while (ret < ctx->ios_sent_to_disk) {
+      //    printf("Problem: only got %d answers out of %lu enqueued IO requests\n", ret, ctx->ios_sent_to_disk);
+      //    ret += io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret, ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
+      // }
+      if(ret != ctx->ios_sent_to_disk) {
          die("Problem: only got %d answers out of %lu enqueued IO requests\n", ret, ctx->ios_sent_to_disk);
+      }
    } stop_debug_timer(10000, "io_getevents took more than 10ms!!");
 }
 
@@ -363,6 +373,13 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       for(size_t i = 0; i < ret; i++) {
          struct iocb *cb = (void*)ctx->events[i].obj;
          struct slab_callback *callback = (void*)cb->aio_data;
+         if (ctx->events[i].res != 4096) {
+           printf("ret: %llu, Seq: %lu, key: %lu\n", 
+                  ctx->events[i].res,
+                  callback->slab->seq, 
+                  callback->slab_idx);
+
+         }
          assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
          callback->lru_entry->contains_data = 1;
          callback->lru_entry->dirty = 0; // done before
@@ -379,4 +396,87 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
 
 int io_pending(struct io_context *ctx) {
    return ctx->sent_io - ctx->processed_io;
+}
+
+char *write_gc_async(struct gc_context *gtx, uint64_t buf_num, uint64_t file_num) {
+   struct io_context *ctx = get_io_context_from_gtx(gtx);
+   int buffer_idx = ctx->sent_io % ctx->max_pending_io;
+   struct iocb *_iocb = &ctx->iocb[buffer_idx];
+   char *page = get_databuf_from_gtx(gtx);
+   void *disk_page = &page[buf_num * PAGE_SIZE];
+
+   // printf("buf_num: %lu\n", buf_num);
+   memset(_iocb, 0, sizeof(*_iocb));
+   // memset(&ctx->events[buffer_idx%64], 0, sizeof(struct io_event));
+   _iocb->aio_fildes = get_fd_from_gtx(gtx);
+   _iocb->aio_lio_opcode = IOCB_CMD_PWRITE;
+   _iocb->aio_buf = (uint64_t)disk_page;
+   // _iocb->aio_data = (uint64_t)get_file_from_gtx(gtx);
+   _iocb->aio_offset = file_num * PAGE_SIZE;
+	 // _iocb->aio_rw_flags = RWF_APPEND;
+   _iocb->aio_nbytes = PAGE_SIZE;
+   if(ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
+      die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n", ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
+   ctx->sent_io++;
+   return NULL;
+}
+
+
+/* Enqueue requests */
+void gc_ioengine_enqueue_ios(struct io_context *ctx) {
+   size_t pending = ctx->sent_io - ctx->processed_io;
+   int ret = 0;
+   if(pending == 0) {
+      ctx->ios_sent_to_disk = 0;
+      return;
+   }
+   /*if(pending > QUEUE_DEPTH)
+      pending = QUEUE_DEPTH;*/
+
+   for(size_t i = 0; i < pending; i++) 
+      ctx->iocbs[i] = &ctx->iocb[(ctx->processed_io + i)%ctx->max_pending_io];
+
+   // Submit requests to the kernel
+   ret = io_submit(ctx->ctx, pending, ctx->iocbs);
+   if (ret != pending)
+      perr("Couldn't submit all io requests! %d submitted / %lu (%lu sent, %lu processed)\n", ret, pending, ctx->sent_io, ctx->processed_io);
+   ctx->ios_sent_to_disk = ret;
+}
+
+/* Get processed requests from disk and call callbacks */
+void gc_ioengine_get_completed_ios(struct io_context *ctx) {
+   int ret = 0;
+   declare_debug_timer;
+
+   if(ctx->ios_sent_to_disk == 0)
+      return;
+
+   start_debug_timer {
+      ret = io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret, ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
+      // while (ret < ctx->ios_sent_to_disk) {
+      //    printf("Problem: only got %d answers out of %lu enqueued IO requests\n", ret, ctx->ios_sent_to_disk);
+      //    ret += io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret, ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
+      // }
+      if(ret != ctx->ios_sent_to_disk) {
+         die("Problem: only got %d answers out of %lu enqueued IO requests\n", ret, ctx->ios_sent_to_disk);
+      }
+   } stop_debug_timer(10000, "io_getevents took more than 10ms!!");
+}
+
+
+void gc_ioengine_process_completed_ios(struct io_context *ctx) {
+   int ret = ctx->ios_sent_to_disk;
+
+   if(ctx->ios_sent_to_disk == 0)
+      return;
+   // Ok, now the main thread can push more requests
+      // Enqueue completed IO requests
+    for(size_t i = 0; i < ret; i++) {
+      if (ctx->events[i].res != 4096) {
+        printf("ret: %llu, i/total: %lu/%d\n", ctx->events[i].res, i, ret);
+      }
+      assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
+    }
+
+   ctx->processed_io += ctx->ios_sent_to_disk;
 }

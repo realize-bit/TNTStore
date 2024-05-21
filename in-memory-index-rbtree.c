@@ -17,9 +17,24 @@ static uint64_t get_prefix_for_item(char *item) {
 
 int rbq_isEmpty(enum fsst_mode m) {
     rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    int count;
+    R_LOCK(&lock);
+    count = queue->count;
+    R_UNLOCK(&lock);
     return queue->count == 0;
 }
 
+int rbq_count(enum fsst_mode m) {
+    rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    int count;
+
+    R_LOCK(&lock);
+    count = queue->count;
+    R_UNLOCK(&lock);
+    return count;
+}
 void rbq_enqueue(enum fsst_mode m, rbtree_node n) {
     rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
     pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
@@ -59,6 +74,24 @@ tree_entry_t *rbq_dequeue(enum fsst_mode m) {
     queue->count--;
     W_UNLOCK(&lock);
     free(ptr);    
+    
+    return &data->value;
+}
+
+tree_entry_t *rbq_front(enum fsst_mode m) {
+    rbtree_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    rbtree_node data;
+    queue_node *ptr;
+    R_LOCK(&lock);
+    if (isEmpty(queue))
+    {
+        W_UNLOCK(&lock);
+        return 0;
+    }
+    ptr = queue->front;
+    data = ptr->data;
+    R_UNLOCK(&lock);
     
     return &data->value;
 }
@@ -148,19 +181,19 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
         if (!n) {
 	    int cur_nb_elements = t->nb_elements;
             R_UNLOCK(&trees_location_lock);
-	    while(1) {
-		if(cur_nb_elements >= t->nb_elements) { // Queue is full, wait
-	            NOP10();
-	            if(!PINNING)
-                        usleep(2);
-                } else {
-                    break;
-                }
-	    }
-	    R_LOCK(&trees_location_lock);
-	}
-      } while (!n);
-   }
+        while(1) {
+          if(cur_nb_elements >= t->nb_elements) { // Queue is full, wait
+            NOP10();
+            if(!PINNING)
+              usleep(2);
+          } else {
+            break;
+          }
+        }
+        R_LOCK(&trees_location_lock);
+      }
+    } while (!n);
+  }
    R_UNLOCK(&trees_location_lock);
    if (n)
     return &n->value;
@@ -241,9 +274,10 @@ index_entry_t *rbtree_tnt_lookup(void *item) {
           && !s->update_ref) {
           uint64_t nb_update = s->last_item - s->nb_items;
           uint64_t nb_thresh = trees_location->total_ref_count / 
-            ((trees_location->nb_elements - trees_location->empty_elements) * 2);
+            ((trees_location->nb_elements - trees_location->empty_elements));
 
           uint64_t s_ref = n->value.touch - nb_update;
+          // printf("REF: %lu, Thresh: %lu\n", s_ref, nb_thresh);
           if (s_ref < nb_thresh)  {
             enqueue = 1;
             ((rbtree_node)s->tree_node)->imm = 1;

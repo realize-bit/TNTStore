@@ -91,7 +91,21 @@ extern "C"
 
       return res;
    }
+   void btree_allvalid_key(btree_t *t,  struct index_scan *res) {
+      btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
+      auto i = b->begin();
 
+      while(i != b->end()) {
+       if (!test_inval(&i->second.slab_idx)) {
+        res->hashes[res->nb_entries] = i->first;
+        res->entries[res->nb_entries] = i->second;
+        res->nb_entries++;
+       }
+       i++;
+      }
+
+      return;
+   }
 
    void btree_forall_keys(btree_t *t, void (*cb)(uint64_t h, void *data), void *data) {
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
@@ -122,7 +136,27 @@ extern "C"
       }
       return count;
    }
+   uint64_t btree_next_key(btree_t *t,  unsigned char* k, struct index_entry *e) {
+      btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
+      uint64_t hash;
+      auto i = b->begin();
 
+      if (k != NULL) {
+        hash = *(uint64_t*)k;
+        i = b->find(hash);
+      }
+
+      while(i != b->end() && test_inval(&i->second.slab_idx))
+       i++;
+
+      if (i == b->end())
+        return -1;
+
+      if (!test_inval(&i->second.slab_idx))
+         *e = i->second;
+
+      return i->first;
+   }
 
    void btree_free(btree_t *t) {
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);

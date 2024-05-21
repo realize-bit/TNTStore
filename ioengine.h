@@ -17,6 +17,10 @@ int io_pending(struct io_context *ctx);
 void worker_ioengine_enqueue_ios(struct io_context *ctx);
 void worker_ioengine_get_completed_ios(struct io_context *ctx);
 void worker_ioengine_process_completed_ios(struct io_context *ctx);
+char *write_gc_async(struct gc_context *gtx, uint64_t buf_num, uint64_t file_num);
+void gc_ioengine_enqueue_ios(struct io_context *ctx);
+void gc_ioengine_get_completed_ios(struct io_context *ctx);
+void gc_ioengine_process_completed_ios(struct io_context *ctx);
 
 
 

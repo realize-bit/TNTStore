@@ -18,6 +18,8 @@ struct index_scan btree_find_n(btree_t *t, unsigned char* k, size_t len, size_t 
 void btree_forall_keys(btree_t *t, void (*cb)(uint64_t h, void *data), void *data);
 int btree_forall_invalid(btree_t *t, void (*cb)(void *data));
 void btree_free(btree_t *t);
+uint64_t btree_next_key(btree_t *t,  unsigned char* k, struct index_entry *e);
+   void btree_allvalid_key(btree_t *t,  struct index_scan *res);
 
 #ifdef __cplusplus
 }

@@ -12,7 +12,11 @@
 //  */
 //};
 
-
+struct gc_context;
+int get_fd_from_gtx(struct gc_context *gtx);
+struct fsst_file *get_file_from_gtx(struct gc_context *gtx);
+char *get_databuf_from_gtx(struct gc_context *gtx);
+struct io_context *get_io_context_from_gtx(struct gc_context *gtx);
 
 struct fsst_file {
    int fd;
@@ -36,6 +40,7 @@ struct fsst_index {
    uint64_t key;
    uint64_t off;
    uint64_t sz;
+   uint64_t PAD;
 
 };
 
