@@ -52,6 +52,8 @@ int main(int argc, char **argv) {
    repopulate_db(&w);
    load = 0;
 
+   sleep_until_fsstq_empty();
+
    // flush_batched_load();
 
    print = 1;
@@ -67,7 +69,11 @@ int main(int argc, char **argv) {
       // ycsb_b_uniform, 
       // ycsb_b_zipfian,
       // ycsb_c_uniform, 
-       ycsb_c_zipfian,
+      // ycsb_c_zipfian,
+      ycsb_a_uniform, 
+      ycsb_c_uniform, 
+      ycsb_a_zipfian,
+      ycsb_c_zipfian,
    };
 
       // sleep(5);
@@ -81,7 +87,7 @@ int main(int argc, char **argv) {
       } else {
          w.nb_requests = 100000000LU;
       }
-      // w.nb_requests = 50000000LU;
+      w.nb_requests = 100000000LU;
       // w.nb_requests = 5000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);

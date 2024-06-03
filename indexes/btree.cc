@@ -10,6 +10,15 @@ extern "C"
   {
     asm("btsl %1,%0" : "+m" (*(size_t *)addr) : "Ir" (63));
   }
+  static inline int tas_inval(size_t * addr)
+  {
+    int oldbit;
+    asm(
+	"lock; btsl %2,%1\n\tsbbl %0,%0"
+	:"=r" (oldbit),"=m" (*addr)
+	:"r" (63));
+    return oldbit;
+  }
   static inline unsigned char test_inval(size_t *addr)
   {
     unsigned char v;
@@ -40,7 +49,7 @@ extern "C"
       btree_map<uint64_t, struct index_entry> *b = static_cast< btree_map<uint64_t, struct index_entry> * >(t);
       auto i = b->find(hash);
       if(i != b->end()) {
-         if (!test_inval(&i->second.slab_idx)) {
+         if (!tas_inval(&i->second.slab_idx)) {
           // printf("SET INVAL %lu (s, %lu)\n", hash, i->second.slab_idx);
           set_inval(&i->second.slab_idx);
           return 1;

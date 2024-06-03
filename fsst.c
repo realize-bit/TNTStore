@@ -312,7 +312,7 @@ int make_fsst(void) {
   return 0;
 }
 
-#define NODE_BATCH 4
+#define NODE_BATCH 8
 
 static void *fsst_worker(void *pdata) {
   vict_file_fsst = aligned_alloc(PAGE_SIZE, 16384*PAGE_SIZE);
@@ -407,6 +407,15 @@ int make_fsst_gc(void) {
   } while (victim);
 
   return 0;
+}
+
+void sleep_until_fsstq_empty(void) {
+
+    while (!rbq_isEmpty(FSST)) {
+    	NOP10();
+    }
+
+    return;
 }
 
 static void *gc_worker(void *pdata) {

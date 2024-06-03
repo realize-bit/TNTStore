@@ -45,5 +45,6 @@ tree_entry_t *pick_garbage_node();
 void read_item_async_from_fsst(struct slab_callback *callback);
 void flush_batched_load(void);
 void fsst_worker_init(void);
+void sleep_until_fsstq_empty(void);
 
 #endif

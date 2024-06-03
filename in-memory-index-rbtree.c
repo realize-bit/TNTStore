@@ -104,18 +104,24 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
       struct slab *s = n->value.slab;
       int comp_result;
 
-      W_LOCK(&s->tree_lock);
+      R_LOCK(&s->tree_lock);
       if (s->imm == 0) {
         s->update_ref++;
         n->value.touch++;
         __sync_fetch_and_add(&trees_location->total_ref_count, 1);
+        R_UNLOCK(&s->tree_lock);
         if (old_e && s == old_e->slab) {
           // IN-PLACE UPDATE
           // old_e->slab->update_ref++;
           *idx = -1;
-          W_UNLOCK(&s->tree_lock);
           break;
         }
+       	W_LOCK(&s->tree_lock);
+        s->update_ref++;
+	if (s->last_item >= s->nb_max_items) {
+          W_UNLOCK(&s->tree_lock);
+	  continue;
+	}
         assert(s->last_item < s->nb_max_items);
         *idx = s->last_item++;
         s->nb_items++;
@@ -126,7 +132,7 @@ tree_entry_t *rbtree_worker_get(void *key, uint64_t *idx, index_entry_t * old_e)
       } else {
         assert(s->last_item == s->nb_max_items);
       }
-      W_UNLOCK(&s->tree_lock);
+      R_UNLOCK(&s->tree_lock);
       prev = n;
       do {
         R_LOCK(&s->tree_lock);
@@ -338,28 +344,20 @@ int rbtree_tnt_invalid(void *item) {
       struct slab *s = n->value.slab;
       int comp_result;
 
-      W_LOCK(&s->tree_lock);
+      R_LOCK(&s->tree_lock);
       if (s->min != -1 && 
         filter_contain(s->filter, (unsigned char *)&key)) {
          if(btree_worker_invalid_utree(s->tree, item)) {
-            s->nb_items--;
-            __sync_fetch_and_sub(&trees_location->total_ref_count, 1);
-            if (s->nb_items < s->nb_max_items/20
-            // if (s->nb_items == 0
-                && s->imm && !s->update_ref
-                && !((rbtree_node)s->tree_node)->imm) {
-              enqueue = 1;
-              ((rbtree_node)s->tree_node)->imm = 1;
-              printf("FSST: imm-%d, nb_items-%lu, update_ref-%lu\n",
-                     s->imm, s->nb_items, s->update_ref);
-            }
+            __sync_fetch_and_sub(&s->nb_items, 1);
+            //s->nb_items--;
             count++;
          }
       }
       comp_result = pointer_cmp((void*)key, n->key);
-      W_UNLOCK(&s->tree_lock);
-      if (enqueue) 
-        rbq_enqueue(FSST, n);
+
+      R_UNLOCK(&s->tree_lock);
+      //if (enqueue)
+        //rbq_enqueue(GC, n);
 
       if (comp_result <= 0) {
          n = n->left;
