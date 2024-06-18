@@ -16,40 +16,6 @@ typedef rbtree hash_t;
       rbtree_insert((h), (void*)(hash), &new_entry, pointer_cmp); \
    } while(0)
 
-#elif PAGECACHE_INDEX == RAX
-
-#include "indexes/rax.h"
-typedef rax* hash_t;
-#define tree_create() raxNew()
-#define tree_lookup(h, hash) ({ void *__v = raxFind((h), (unsigned char*)&(hash), sizeof(hash)); __v==raxNotFound?NULL:__v; })
-#define tree_delete(h, hash, old_entry) raxRemove((h), (unsigned char *)&(hash), sizeof(hash), (void**)(old_entry))
-#define tree_insert(h, hash, old_entry, dst, lru_entry) \
-   do { \
-      pagecache_entry_t *new_entry = old_entry; \
-      if(!new_entry) \
-         new_entry = malloc(sizeof(*new_entry)); \
-      new_entry->page = dst; \
-      new_entry->lru = lru_entry; \
-      raxInsert((h),(unsigned char*)&(hash),sizeof(hash),new_entry,NULL); \
-   } while(0)
-
-#elif PAGECACHE_INDEX == ART
-
-#include "indexes/art.h"
-typedef art_tree* hash_t;
-#define tree_create() ({ art_tree *___t = malloc(sizeof(*___t)); art_tree_init(___t); ___t; })
-#define tree_lookup(h, hash) art_search((h), (unsigned char*)&(hash), sizeof(hash))
-#define tree_delete(h, hash, old_entry) *old_entry = art_delete((h), (unsigned char *)&(hash), sizeof(hash))
-#define tree_insert(h, hash, old_entry, dst, lru_entry) \
-   do { \
-      pagecache_entry_t *new_entry = old_entry; \
-      if(!new_entry) \
-         new_entry = malloc(sizeof(*new_entry)); \
-      new_entry->page = dst; \
-      new_entry->lru = lru_entry; \
-      art_insert((h),(unsigned char*)&(hash),sizeof(hash),new_entry); \
-   } while(0)
-
 #elif PAGECACHE_INDEX == BTREE
 
 #include "indexes/btree.h"
@@ -65,7 +31,6 @@ typedef btree_t* hash_t;
       pagecache_entry_t new_entry = { .page = dst, .lru = lru_entry }; \
       btree_insert((h),(unsigned char*)&(hash),sizeof(hash), &new_entry); \
    } while(0)
-
 
 #endif
 

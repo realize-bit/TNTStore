@@ -47,7 +47,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
    uint64_t key = *(uint64_t*)item_key;
 
    W_LOCK(&s->tree_lock);
-   memory_index_add_utree(cb, item);
+   tnt_index_add(cb, item);
    // s->nb_items++;
    if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
     printf("Fail adding to filter %p %lu %lu\n", s->filter, key, s->nb_items);
@@ -62,16 +62,16 @@ void add_in_tree(struct slab_callback *cb, void *item) {
       s->max = key;
    if ((s->max - s->min) > (s->nb_max_items * 10)
        && s->imm && !s->update_ref
-       && !((rbtree_node)s->tree_node)->imm) {
+       && !((centree_node)s->tree_node)->imm) {
       enqueue = 1;
-      ((rbtree_node)s->tree_node)->imm = 1;
+      ((centree_node)s->tree_node)->imm = 1;
    }
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
 
    if (enqueue)
-      rbq_enqueue(FSST, s->tree_node);
+      bgq_enqueue(FSST, s->tree_node);
 
 
 
@@ -88,6 +88,7 @@ struct rebuild_pdata {
    size_t end;
    struct workload *w;
 };
+
 void *repopulate_db_worker(void *pdata) {
    declare_periodic_count;
    struct rebuild_pdata *data = pdata;

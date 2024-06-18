@@ -1,4 +1,4 @@
-/* Copyright (c)2011 the authors listed at the following URL, and/or
+/* Copyright (c) 2011 the authors listed at the following URL, and/or
    the authors of referenced articles or incorporated external code:
 http://en.literateprograms.org/Red-black_tree_(C)?action=history&offset=20090121005050
 
@@ -14,7 +14,8 @@ The above copyright notice and this permission notice shall be
 included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
@@ -24,96 +25,14 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 */
 
 #include "rbtree.h"
-#include "btree.h"
 #include <assert.h>
 
 #include <stdlib.h>
-#include <stdio.h>
 
-struct slab {
-   struct slab_context *ctx;
-   struct slab_callback **batched_callbacks;
-
-   uint64_t key;
-   uint64_t min;
-   uint64_t max;
-   uint64_t seq;
-   void *tree;
-   void *tree_node;
-   void *filter;
-
-   unsigned char imm;
-   pthread_rwlock_t tree_lock;
-
-   unsigned char batch_idx;
-   unsigned char nb_batched;
-
-   //TODO::JS::구조체 수정
-   size_t item_size;
-   size_t nb_items;   // Number of non freed items
-   size_t last_item;  // Total number of items, including freed
-   size_t nb_max_items;
-
-   int fd;
-   size_t size_on_disk;
-
-   size_t nb_free_items, nb_free_items_in_memory;
-   struct freelist_entry *freed_items, *freed_items_tail;
-   btree_t *freed_items_recovery, *freed_items_pointed_to;
-   uint64_t update_ref;
-};
 
 typedef rbtree_node node;
 typedef enum rbtree_node_color color;
 
-static rbtree_queue *rbqueue;
-
-void initQueue(rbtree_queue *queue)
-{
-    queue->front = queue->rear = NULL; 
-    queue->count = 0;    // 큐 안의 노드 개수를 0으로 설정
-}
-
-int isEmpty(rbtree_queue *queue)
-{
-    return queue->count == 0;    // 큐안의 노드 개수가 0이면 빈 상태
-}
-
-void enqueue(rbtree_queue *queue, node n)
-{
-    queue_node *new = (queue_node *)malloc(sizeof(queue_node)); // newNode 생성
-    new->data = n;
-    new->next = NULL;
- 
-    if (isEmpty(queue))    // 큐가 비어있을 때
-    {
-        queue->front = new;       
-    }
-    else    // 비어있지 않을 때
-    {
-        queue->rear->next = new;    //맨 뒤의 다음을 newNode로 설정
-    }
-    queue->rear = new;    //맨 뒤를 newNode로 설정   
-    queue->count++;    //큐안의 노드 개수를 1 증가
-}
-
-node dequeue(rbtree_queue *queue)
-{
-    node data;
-    queue_node *ptr;
-    if (isEmpty(queue))    //큐가 비었을 때
-    {
-        printf("Error : Queue is empty!\n");
-        return 0;
-    }
-    ptr = queue->front;    //맨 앞의 노드 ptr 설정 
-    data = ptr->data;    // return 할 데이터  
-    queue->front = ptr->next;    //맨 앞은 ptr의 다음 노드로 설정
-    free(ptr);    // ptr 해제 
-    queue->count--;    //큐의 노드 개수를 1 감소
-    
-    return data;
-}
 
 static node grandparent(node n);
 static node sibling(node n);
@@ -129,7 +48,7 @@ static void verify_property_5(node root);
 static void verify_property_5_helper(node n, int black_count, int* black_count_path);
 #endif
 
-static node new_node(void* key, tree_entry_t* value, color node_color, node left, node right);
+static node new_node(void* key, index_entry_t* value, color node_color, node left, node right);
 static node lookup_node(rbtree t, void* key, compare_func compare);
 static void rotate_left(rbtree t, node n);
 static void rotate_right(rbtree t, node n);
@@ -246,16 +165,12 @@ rbtree rbtree_create() {
    t->root = NULL;
    t->last_visited_node = NULL;
    t->nb_elements = 0;
-   t->empty_elements = 0;
    verify_properties(t);
-   rbqueue = malloc(sizeof(rbtree_queue));
-   initQueue(rbqueue);
    return t;
 }
 
-node new_node(void* key, tree_entry_t* value, color node_color, node left, node right) {
+node new_node(void* key, index_entry_t* value, color node_color, node left, node right) {
    node result = malloc(sizeof(struct rbtree_node_t));
-   result->imm = 0;
    result->key = key;
    result->value = *value;
    result->color = node_color;
@@ -284,61 +199,27 @@ node lookup_node(rbtree t, void* key, compare_func compare) {
    return n;
 }
 
-//node lookup_closest_node(rbtree t, void* key, compare_func compare) {
-//   node n = t->root;
-//   int closest_seq = 0;
-//   node closest = NULL;
-//   while (n != NULL) {
-//      int comp_result = compare(key, n->key);
-//      if (comp_result <= 0) {
-//         closest = n;
-//         n = n->left;
-//      } else {
-//         assert(comp_result > 0);
-//         //::JS::수정함
-//         closest = n;
-//         n = n->right;
-//      }
-//      if (closest->imm == 0)
-//        break;
-//   }
-//   if (closest->imm)
-//      printf("IMMUM, Don't touch me\n");
-//   return closest;
-//}
-node traverse_node_useq(rbtree t, int key) {
-   node n = NULL;
-   if (key == 0) { // init
-      enqueue(rbqueue, t->root);
+node lookup_closest_node(rbtree t, void* key, compare_func compare) {
+   node n = t->root;
+   node closest = NULL;
+   while (n != NULL) {
+      int comp_result = compare(key, n->key);
+      if (comp_result == 0) {
+         t->last_visited_node = n;
+         return n;
+      } else if (comp_result < 0) {
+         closest = n;
+         n = n->left;
+      } else {
+         assert(comp_result > 0);
+         n = n->right;
+      }
    }
-   if (!isEmpty(rbqueue)) {
-      n = dequeue(rbqueue);
-      if (n->left)
-          enqueue(rbqueue, n->left);
-      if (n->right)
-          enqueue(rbqueue, n->right);
-   }
-   return n;
+   return closest;
 }
 
-// void rbtree_n_update(rbtree t, void* old_key, void* new_key, compare_func compare) {
-   // node n = lookup_node(t, old_key, compare);
-   // n->imm = 1;
-   // n->key = new_key;
-// }
-
-tree_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
+index_entry_t* rbtree_lookup(rbtree t, void* key, compare_func compare) {
    node n = lookup_node(t, key, compare);
-   return n == NULL ? NULL : &n->value;
-}
-
-//tree_entry_t* rbtree_closest_lookup(rbtree t, void* key, compare_func compare) {
-//   node n = lookup_closest_node(t, key, compare);
-//   return n == NULL ? NULL : &n->value;
-//}
-
-tree_entry_t* rbtree_traverse_useq(rbtree t, int seq) {
-   node n = traverse_node_useq(t, seq);
    return n == NULL ? NULL : &n->value;
 }
 
@@ -378,32 +259,29 @@ void replace_node(rbtree t, node oldn, node newn) {
    }
 }
 
-node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compare) {
+void rbtree_insert(rbtree t, void* key, index_entry_t* value, compare_func compare) {
    node inserted_node = new_node(key, value, RED, NULL, NULL);
-   uint64_t level = 0;
    /* Classic hack to speed up the find & insert case */
-   //if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
-   //   t->last_visited_node->value = *value;
-   //   free(inserted_node);
-   //   return;
-   //} else 
-    if (t->root == NULL) {
+   if (t->last_visited_node && compare(key, t->last_visited_node->key) == 0) {
+      t->last_visited_node->value = *value;
+      free(inserted_node);
+      return;
+   } else if (t->root == NULL) {
       t->root = inserted_node;
       t->nb_elements = 1;
    } else {
       node n = t->root;
       while (1) {
          int comp_result = compare(key, n->key);
-         //if (comp_result == 0) {
-         //   n->value = *value;
-         //   /* inserted_node isn't going to be used, don't leak it */
-         //   free (inserted_node);
-         //   return;
-         //} else 
-         if (comp_result <= 0) {
+         if (comp_result == 0) {
+            n->value = *value;
+            /* inserted_node isn't going to be used, don't leak it */
+            free (inserted_node);
+            return;
+         } else if (comp_result < 0) {
             if (n->left == NULL) {
                n->left = inserted_node;
-	       __sync_fetch_and_add(&t->nb_elements, 1);
+               t->nb_elements++;
                break;
             } else {
                n = n->left;
@@ -412,21 +290,17 @@ node rbtree_insert(rbtree t, void* key, tree_entry_t* value, compare_func compar
             assert (comp_result > 0);
             if (n->right == NULL) {
                n->right = inserted_node;
-	       __sync_fetch_and_add(&t->nb_elements, 1);
+               t->nb_elements++;
                break;
             } else {
                n = n->right;
             }
          }
-         level++;
       }
       inserted_node->parent = n;
    }
-   value->level = level;
-   inserted_node->value = *value;
-   // insert_case1(t, inserted_node);
-   // verify_properties(t);
-   return inserted_node;
+   insert_case1(t, inserted_node);
+   verify_properties(t);
 }
 
 void insert_case1(rbtree t, node n) {
@@ -596,48 +470,16 @@ void delete_case6(rbtree t, node n) {
    }
 }
 
-// Function to print binary tree in 2D
-// It does reverse inorder traversal
-void print2DUtil(node n, int space)
-{
-    // Base case
-    if (n == NULL)
-        return;
- 
-    // Increase distance between levels
-    space += 10;
- 
-    // Process right child first
-    print2DUtil(n->right, space);
- 
-    // Print current node after space
-    // count
-    printf("\n");
-    for (int i = 1; i < space; i++)
-        printf(" ");
-    if (!n->imm)
-      printf("%lu,%lu:%lu-%lu,%d,%lu\n", n->value.seq, n->value.level, n->value.slab->min, n->value.slab->max, n->imm, n->value.touch);
-    else
-      printf("%lu,%lu:0-0,%d,%lu\n", n->value.seq, n->value.level, n->imm, n->value.touch);
- 
-    // Process left child
-    print2DUtil(n->left, space);
-}
- 
 void rbtree_print_nodes(node n, compare_func show) {
    if(!n)
       return;
-
-   printf("l\n");
    rbtree_print_nodes(n->left, show);
    show(n->key, &n->value);
-   printf("r\n");
    rbtree_print_nodes(n->right, show);
 }
-void rbtree_print(rbtree t) {
+void rbtree_print(rbtree t, compare_func show) {
    node n = t->root;
-   print2DUtil(n, 0);
-   // rbtree_print_nodes(n, show);
+   rbtree_print_nodes(n, show);
 }
 
 
@@ -669,19 +511,19 @@ void rbtree_fill_scan_up(rbtree t, node n, size_t max, struct rbtree_scan_tmp *r
    }
 }
 
-//struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare) {
-//   struct rbtree_scan_tmp res;
-//   res.entries = malloc(n * sizeof(*res.entries));
-//   res.nb_entries = 0;
-//
-//   node start = lookup_closest_node(t, key, compare);
-//   if(start == NULL)
-//      return res;
-//   res.entries[0] = *start;
-//   res.nb_entries++;
-//
-//   rbtree_fill_scan(t, start->right, n, &res);
-//   rbtree_fill_scan_up(t, start, n, &res);
-//
-//   return res;
-//}
+struct rbtree_scan_tmp rbtree_lookup_n(rbtree t, void *key, size_t n, compare_func compare) {
+   struct rbtree_scan_tmp res;
+   res.entries = malloc(n * sizeof(*res.entries));
+   res.nb_entries = 0;
+
+   node start = lookup_closest_node(t, key, compare);
+   if(start == NULL)
+      return res;
+   res.entries[0] = *start;
+   res.nb_entries++;
+
+   rbtree_fill_scan(t, start->right, n, &res);
+   rbtree_fill_scan_up(t, start, n, &res);
+
+   return res;
+}

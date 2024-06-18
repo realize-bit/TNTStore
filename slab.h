@@ -27,7 +27,6 @@ struct slab_callback;
 /* Header of a slab -- shouldn't contain any pointer as it is persisted on disk. */
 struct slab {
    struct slab_context *ctx;
-   struct slab_callback **batched_callbacks;
 
    uint64_t key;
    uint64_t min;
@@ -40,8 +39,6 @@ struct slab {
    unsigned char imm;
    pthread_lock_t tree_lock;
 
-   unsigned char batch_idx;
-   unsigned char nb_batched;
 
    //TODO::JS::구조체 수정
    size_t item_size;
@@ -51,11 +48,10 @@ struct slab {
 
    int fd;
    size_t size_on_disk;
-
-   size_t nb_free_items, nb_free_items_in_memory;
-   struct freelist_entry *freed_items, *freed_items_tail;
-   btree_t *freed_items_recovery, *freed_items_pointed_to;
    uint64_t update_ref;
+
+   //unsigned char batch_idx;
+   //unsigned char nb_batched;
 };
 
 /* This is the callback enqueued in the engine.

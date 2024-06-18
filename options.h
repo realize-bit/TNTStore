@@ -4,15 +4,14 @@
 #define DEBUG 0
 #define PINNING 1
 #define PATH "/scratch%lu/kvell/slab-%d-%lu-%lu"
-#define FSST_PATH "/scratch%lu/kvell/fsst-%lu-%lu"
+#define FSST_PATH "/scratch0/kvell/fsst-%lu-%lu"
 
 /* In memory structures */
 #define RBTREE 0
-#define RAX 1
-#define ART 2
-#define BTREE 3
+#define BTREE 1
+#define TNT 2
 
-#define MEMORY_INDEX BTREE
+#define MEMORY_INDEX TNT
 #define PAGECACHE_INDEX BTREE
 
 /* Queue depth management */

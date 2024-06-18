@@ -11,8 +11,8 @@ int main(int argc, char **argv) {
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
-      .nb_items_in_db = 100000000LU,
-      //.nb_items_in_db = 5000000LU,
+      //.nb_items_in_db = 100000000LU,
+      .nb_items_in_db = 50000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
    };
@@ -70,9 +70,9 @@ int main(int argc, char **argv) {
       // ycsb_b_zipfian,
       // ycsb_c_uniform, 
       // ycsb_c_zipfian,
-      ycsb_a_uniform, 
-      ycsb_c_uniform, 
-      ycsb_a_zipfian,
+      // ycsb_a_uniform, 
+      // ycsb_c_uniform, 
+      // ycsb_a_zipfian,
       ycsb_c_zipfian,
    };
 
@@ -87,8 +87,8 @@ int main(int argc, char **argv) {
       } else {
          w.nb_requests = 100000000LU;
       }
-      w.nb_requests = 100000000LU;
-      // w.nb_requests = 5000000LU;
+      // w.nb_requests = 50000000LU;
+      w.nb_requests = 50000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;

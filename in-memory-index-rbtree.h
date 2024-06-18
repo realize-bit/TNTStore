@@ -11,10 +11,10 @@
 #define memory_index_scan rbtree_init_scan
 
 void rbtree_init(void);
-struct tree_entry *rbtree_worker_lookup(int worker_id, void *item);
+struct index_entry *rbtree_worker_lookup(int worker_id, void *item);
 void rbtree_worker_delete(int worker_id, void *item);
-struct tree_scan rbtree_init_scan(void *item, size_t scan_size);
-void rbtree_tree_add(struct slab_callback *cb, void *item);
+struct index_scan rbtree_init_scan(void *item, size_t scan_size);
+void rbtree_index_add(struct slab_callback *cb, void *item);
 
 #endif
 

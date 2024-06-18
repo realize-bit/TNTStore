@@ -31,7 +31,8 @@ static void launch_prod(struct workload *w, bench_t b) {
          kv_update_async(cb);
       } else if(random < 98) {
          kv_read_async(cb);
-      } else {
+      } // TODO SCAN  
+        /*else {
          tree_scan_res_t scan_res = kv_init_scan(cb->item, uniform_next()%99+1);
          free(cb->item);
          free(cb);
@@ -42,7 +43,7 @@ static void launch_prod(struct workload *w, bench_t b) {
          }
          free(scan_res.hashes);
          free(scan_res.entries);
-      }
+      } */
       periodic_count(1000, "Production Load Injector");
    }
 }

@@ -83,10 +83,6 @@ struct pagecache *get_pagecache(struct slab_context *ctx) {
    return ctx->pagecache;
 }
 
-// struct pagecache *get_pagecache_uhash(uint64_t hash) {
-   // return &pagecaches[hash%get_nb_workers()];
-// }
-
 struct io_context *get_io_context(struct slab_context *ctx) {
    return ctx->io_ctx;
 }
@@ -157,30 +153,14 @@ static struct slab *get_slab(struct slab_context *ctx, void *item, uint64_t *sid
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
    uint64_t idx;
-   struct tree_entry *tree = tnt_tree_get((void*)key, &idx, old_e);
-   // printf("GET: %lu, idx: %lu\n", tree->key, idx);
-   // if (tree->slab->last_item == tree->slab->nb_max_items) {
-   //    printf("key: %lu\n", key);
-   //    tnt_print();
-   // }
+   struct tree_entry *tree = tnt_subtree_get((void*)key, &idx, old_e);
 
    if (!tree)
       die("Item is too big\n");
-   /*
-   size_t item_size = get_item_size(item);
-   for(size_t i = 0; i < sizeof(slab_sizes)/sizeof(*slab_sizes); i++) {
-      if(item_size <= slab_sizes[i])
-         return ctx->slabs[i];
-   }
-   */
+
    *sidx = idx;
    return tree->slab;
 }
-
-// struct slab *get_item_slab(int worker_id, void *item) {
-//    struct slab_context *ctx = get_slab_context(item);
-//    return get_slab(ctx, item);
-// }
 
 static void enqueue_slab_callback(struct slab_context *ctx, enum slab_action action, struct slab_callback *callback) {
    size_t buffer_idx = get_slab_buffer(ctx);
@@ -200,7 +180,7 @@ void *kv_read_sync(void *item) {
    struct slab *s = get_slab(ctx, item, &i, NULL);
    // Warning, this is very unsafe, the lookup might not be performed in the worker context => race! We only use that during init.
    R_LOCK(&s->tree_lock);
-   index_entry_t *e = memory_index_lookup_utree(s->tree, item);
+   index_entry_t *e = tnt_index_lookup_utree(s->tree, item);
    R_UNLOCK(&s->tree_lock);
    if(e)
       return read_item(s, GET_SIDX(e->slab_idx));
@@ -243,15 +223,10 @@ void kv_add_or_update_async(struct slab_callback *callback) {
    return enqueue_slab_callback(ctx, ADD_OR_UPDATE, callback);
 }
 
-
 void kv_remove_async(struct slab_callback *callback) {
    struct slab_context *ctx = get_slab_context(callback->item);
    callback->ctx = ctx;
    return enqueue_slab_callback(ctx, DELETE, callback);
-}
-
-tree_scan_res_t kv_init_scan(void *item, size_t scan_size) {
-   return memory_index_scan(item, scan_size);
 }
 
 void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx) {
@@ -262,6 +237,7 @@ void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s, size
    callback->count++;
    return enqueue_slab_callback(ctx, ADD_NO_LOOKUP, callback);
 }
+
 void kv_update_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx) {
    struct slab_context *ctx = get_slab_context_uidx(slab_idx);
    callback->ctx = ctx;
@@ -297,36 +273,27 @@ again:
       // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
       if(action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP 
          && action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
-         // e = memory_index_lookup(ctx->worker_id, callback->item);
          e = tnt_index_lookup(callback->item);
       
       // printf("(%d) i: %lu, cb: %p\n", ctx->worker_id, i, callback->cb);
       switch(action) {
          case ADD_NO_LOOKUP:
          case UPDATE_NO_LOOKUP:
-            // printf("NO LOOKUP %d\n", ctx->worker_id);
             update_item_async(callback);
-            // add_item_async(callback);
-            // remove_and_add_item_async(callback);
             break;
          case READ_NO_LOOKUP:
             //slab idx에 카운트 담아옴
-            // tnt_scan(callback->item, callback->count);
-            // scan_item_async(callback);
             read_item_async(callback);
             break;
          case READ:
             if(!e) { // Item is not in DB
                 __sync_add_and_fetch(&try_fsst, 1);
                read_item_async_from_fsst(callback);
-               // callback->slab = NULL;
-               // callback->slab_idx = -1;
                callback->cb(callback, callback->item);
                break;
             } else {
                callback->slab = e->slab;
                callback->slab_idx = GET_SIDX(e->slab_idx);
-               // read_item_async(callback);
                kv_read_async_no_lookup(callback, callback->slab, callback->slab_idx, 0);
             }
             break;
@@ -335,8 +302,6 @@ again:
                die("Adding item that is already in the database! Use update instead! (This error might also appear if 2 keys have the same prefix, TODO: make index more robust to that.)\n");
             } else {
                callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
-               // callback->slab_idx = -1;
-            // printf("LOOKUP %d\n", ctx->worker_id);
                add_item_async(callback);
             }
             break;
@@ -347,48 +312,30 @@ again:
                callback->cb(callback, NULL);
                break;
             }
-            /*
-            if(!e) {
-               callback->slab = NULL;
-               callback->slab_idx = -1;
-               callback->cb(callback, NULL);
-            } else {
-               callback->slab = e->slab;
-               callback->slab_idx = e->slab_idx;
-               assert(get_item_size(callback->item) <= e->slab->item_size); // Item grew, this is not supported currently!
-               remove_and_add_item_async(callback);
-               update_item_async(callback);
-            }
-            */
+            
             callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
 
+#ifdef DEBUG
+            /*
             struct item_metadata *meta = (struct item_metadata *)callback->item;
             char *item_key = &callback->item[sizeof(*meta)];
             uint64_t key = *(uint64_t*)item_key;
-            /*
-            if (e && callback->slab == e->slab 
-                && !TEST_INVAL(e->slab_idx)) {
-              printf("Update key: %lu\n", key);
-              // callback->slab_idx = GET_SIDX(e->slab_idx);
-              printf("REAL UPDATE CASE seq/imm cb: %lu/%d, new: %lu/%d, fsst: %lu/%d\n", callback->slab->seq, callback->slab->imm, e->slab->seq, e->slab->imm, callback->fsst_slab->seq, callback->fsst_slab->imm);
+            if (!e) {
+             printf("WHAT? %lu\n", key);
+             if (callback->fsst_slab) {
+               printf("SEQ, NB ITEMs, IMM %lu, %lu, %d\n", callback->fsst_slab->seq, callback->fsst_slab->nb_items, callback->fsst_slab->imm);
+               index_entry_t *tmp = btree_worker_lookup_utree(callback->fsst_slab->tree, callback->item);
+               printf("index %p\n", tmp);
+               if (!filter_contain(callback->fsst_slab->filter, (unsigned char *)&key)) {
+                 printf("Holy Moly\n");
+               }
+             }
+             // tnt_print();
             }
+            else
+              callback->slab_idx = -1;
             */
-
-            // FOR DEBUG
-            //if (!e) {
-            //  printf("WHAT? %lu\n", key);
-            //  if (callback->fsst_slab) {
-            //    printf("SEQ, NB ITEMs, IMM %lu, %lu, %d\n", callback->fsst_slab->seq, callback->fsst_slab->nb_items, callback->fsst_slab->imm);
-            //    index_entry_t *tmp = btree_worker_lookup_utree(callback->fsst_slab->tree, callback->item);
-            //    printf("index %p\n", tmp);
-            //    if (!filter_contain(callback->fsst_slab->filter, (unsigned char *)&key)) {
-            //      printf("Holy Moly\n");
-            //    }
-            //  }
-            //  // tnt_print();
-            //}
-            // else
-              // callback->slab_idx = -1;
+#endif
 
             if (e && callback->fsst_slab == NULL) {
               callback->fsst_slab = e->slab;
@@ -403,7 +350,6 @@ again:
             if(!e) {
                callback->action = ADD;
                callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
-               // callback->slab_idx = -1;
                add_item_async(callback);
             } else {
                callback->action = UPDATE;
@@ -413,16 +359,6 @@ again:
                update_item_async(callback);
             }
          case DELETE:
-            if(!e) {
-               callback->slab = NULL;
-               callback->slab_idx = -1;
-               callback->cb(callback, NULL);
-            } else {
-               callback->slab = e->slab;
-               callback->slab_idx = GET_SIDX(e->slab_idx);
-               memory_index_delete(ctx->worker_id, callback->item);
-               remove_item_async(callback);
-            }
             break;
          default:
             die("Unknown action\n");
@@ -445,30 +381,9 @@ again:
    }
 }
 
-/*
-static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
-   struct item_metadata *new_meta = item;
-   if(!memory_index_lookup(get_worker(cb->slab), item)) {
-      memory_index_add_utree(cb, item);
-   } else {
-      // Complex path -- item is already in the index, we should decide which one to keep based on rdt!
-      printf("#WARNING! Item is present twice in the database! Has the database crashed?\n");
-      struct item_metadata *old_meta = kv_read_sync(item);
-      assert(old_meta);
-
-      if(old_meta->rdt < new_meta->rdt) {
-         // TODO: the old spot should be added in the freelist
-         btree_worker_delete(get_worker(cb->slab), old_meta);
-         memory_index_add_utree(cb, item);
-      }
-
-   }
-}*/
 
 static void *worker_slab_init(void *pdata) {
    struct slab_context *ctx = pdata;
-   int ret;
-
 
    __sync_add_and_fetch(&nb_workers_launched, 1);
 
@@ -479,15 +394,10 @@ static void *worker_slab_init(void *pdata) {
    /* Create the pagecache for the worker */
    ctx->pagecache = calloc(1, sizeof(*ctx->pagecache));
    page_cache_init(ctx->pagecache);
-   // page_cache_init(ctx->scancache);
 
    /* Initialize the async io for the worker */
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
-
     __sync_add_and_fetch(&nb_workers_ready, 1);
-
-   // syscall(SYS_ioprio_set, IOPRIO_WHO_PROCESS, x, 
-            // IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 0));
 
    /* Main loop: do IOs and process enqueued requests */
    declare_breakdown;
@@ -521,7 +431,7 @@ static void *worker_slab_init(void *pdata) {
 static void *worker_distributor_init(void *pdata) {
    struct slab_context *ctx = pdata;
 
-   ctx->fsst_idx = aligned_alloc(PAGE_SIZE, 64*PAGE_SIZE);
+   // ctx->fsst_idx = aligned_alloc(PAGE_SIZE, 64*PAGE_SIZE);
    __sync_add_and_fetch(&nb_workers_launched, 1);
 
    pid_t x = syscall(__NR_gettid);
@@ -555,7 +465,6 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk, int nb_distributo
    nb_workers = nb_disks * nb_workers_per_disk;
    nb_distributors = nb_disks * nb_distributors_per_disk;
 
-   // memory_index_init();
    create_root_slab();
 
 
@@ -599,32 +508,4 @@ size_t get_database_size(void) {
    */
 
    return size;
-}
-
-void flush_batched_load(void) {
-  int seq = 0;
-  tree_entry_t *victim = NULL;
-  struct slab *s = NULL;
-
-  do {
-      victim = pick_garbage_node();
-      while (victim && victim->slab->imm == 1)
-        victim = pick_garbage_node();
-
-      if (!victim)
-        break;
-
-      s = victim->slab;
-      if (s->nb_batched != 0) {
-        for (int i=0; i < s->nb_batched; i++) {
-      // printf("FLUSH: %d\n", s->nb_batched);
-          kv_add_async(s->batched_callbacks[i]);
-          // update_item_async(s->batched_callbacks[i]);
-          s->batched_callbacks[i] = NULL;
-        }
-        s->nb_batched = 0;
-      }
-      free(s->batched_callbacks);
-
-  } while (victim);
 }

@@ -16,7 +16,8 @@ void kv_update_async_no_lookup(struct slab_callback *callback, struct slab *s, s
 void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx);
 
 typedef struct index_scan tree_scan_res_t;
-tree_scan_res_t kv_init_scan(void *item, size_t scan_size);
+// TODO SCAN
+// tree_scan_res_t kv_init_scan(void *item, size_t scan_size);
 void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s, size_t slab_idx, uint64_t count);
 
 size_t get_database_size(void);
@@ -24,6 +25,7 @@ size_t get_database_size(void);
 
 void slab_workers_init(int nb_disks, int nb_workers_per_disk, int nb_distributors_per_disk);
 int get_nb_workers(void);
+int get_nb_distributors(void);
 void *kv_read_sync(void *item); // Unsafe
 struct pagecache *get_pagecache(struct slab_context *ctx);
 struct pagecache *get_scancache(struct slab_context *ctx);

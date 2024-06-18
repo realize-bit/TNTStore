@@ -218,51 +218,6 @@ void skip_or_invalidate_index(void *e) {
   return;
 }
 
-//void skip_or_invalidate_index_gc(void *e) {
-//   index_entry_t *i = (index_entry_t *)e;
-//   struct slab *s;
-//   uint64_t slab_idx;
-//   size_t page_num, page_idx, item_size;
-//   char *src;
-//   uint64_t key;
-//   struct fsst_index fi;
-//
-//   s = i->slab;
-//   slab_idx = GET_SIDX(i->slab_idx);
-//   page_num = item_page_num(s, slab_idx);
-//   item_size = s->item_size;
-//   R_UNLOCK(&i->slab->tree_lock);
-//
-//   if (gc_off + item_size > 2*PAGE_SIZE) {
-//     write(insert_ptr->fd, new_data_gc, gc_off);
-//     gc_off = 0;
-//   }
-//
-//   page_idx = (slab_idx % (PAGE_SIZE/item_size)) * item_size;
-//   src = &vict_file_gc[(page_num*PAGE_SIZE) + page_idx];
-//
-//   key = get_prefix_for_item(src);
-//
-//   if (key < insert_ptr->smallest)
-//      insert_ptr->smallest = key;
-//   if (key > insert_ptr->largest)
-//      insert_ptr->largest = key;
-//
-//   memcpy(new_data_gc + gc_off, src, item_size);
-//   fi.key = key;
-//   fi.off = f_off;
-//   fi.sz = item_size;
-//   memcpy(new_index_gc + gc_ioff, &fi, sizeof(struct fsst_index));
-//
-//   gc_off += item_size;
-//   f_off += item_size;
-//   gc_ioff += sizeof(struct fsst_index);
-//   insert_ptr->fsst_items++;
-//
-//   R_LOCK(&i->slab->tree_lock);
-//   return;
-//}
-
 void skip_or_invalidate_index_fsst(void *e) {
    index_entry_t *i = (index_entry_t *)e;
    struct slab_callback *cb;
@@ -293,7 +248,7 @@ void skip_or_invalidate_index_fsst(void *e) {
 
 // 그냥 직접 노드 선택하기 (뭘 기준으로?)
 tree_entry_t *pick_garbage_node() {
-  return tnt_tree_get_useq(cur++);
+  return tnt_traverse_use_seq(cur++);
 }
 
 // 선택된 노드 처리
@@ -331,7 +286,7 @@ int make_fsst(void) {
       count = pread(victim->slab->fd, vict_file_data, victim->slab->size_on_disk, 0);
       // printf("FSST1 NB %lu seq %lu imm %u / read fd: %d, bytes: %d\n", victim->slab->nb_items, victim->slab->seq, victim->slab->imm, victim->slab->fd, count);
       R_LOCK(&victim->slab->tree_lock);
-      count = btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index);
+      count = subtree_forall_invalid(victim->slab->tree, skip_or_invalidate_index);
       R_UNLOCK(&victim->slab->tree_lock);
       // printf("FSST2 NB %lu %lu %d\n", victim->slab->nb_items, victim->slab->seq, count);
   } while (victim);
@@ -339,9 +294,6 @@ int make_fsst(void) {
   free(vict_file_data);
   vict_file_data = NULL;
   cur = 0;
-  // printf("FSST1.5 COUNT %d\n", count);
-  // sleep(10);
-  // printf("FSST2 NB %lu %lu\n", victim->slab->nb_items, victim->slab->seq);
   return 0;
 }
 
@@ -354,18 +306,18 @@ static void *fsst_worker(void *pdata) {
     die("FSST Static Buf Error\n");
 
   while (1) {
-    if (rbq_isEmpty(FSST)) {
+    if (bgq_is_empty(FSST)) {
       goto fsst_sleep;
     }
     for (size_t i = 0; i < NODE_BATCH; i++) {
-      tree_entry_t *victim = rbq_dequeue(FSST);
+      tree_entry_t *victim = bgq_dequeue(FSST);
       if (!victim)
         goto fsst_sleep;
       printf("FSST %lu\n", i);
       pread(victim->slab->fd, vict_file_fsst, victim->slab->size_on_disk, 0);
 
       R_LOCK(&victim->slab->tree_lock);
-      btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index_fsst);
+      subtree_forall_invalid(victim->slab->tree, skip_or_invalidate_index_fsst);
       R_UNLOCK(&victim->slab->tree_lock);
     }
 
@@ -374,146 +326,8 @@ fsst_sleep:
   }
 }
 
-//int make_fsst_gc(void) {
-//  tree_entry_t *victim;
-//  vict_file_gc = aligned_alloc(PAGE_SIZE, 16384*PAGE_SIZE);
-//  new_data_gc = aligned_alloc(PAGE_SIZE, 2*PAGE_SIZE);
-//  new_index_gc = aligned_alloc(PAGE_SIZE, 64*PAGE_SIZE);
-//
-//  do {
-//      char path[512];
-//      char spath[512];
-//      int len;
-//      struct slab *s;
-//      victim = pick_garbage_node();
-//      while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
-//        victim = pick_garbage_node();
-//
-//      if(!victim || cur > 500)
-//        break;
-//
-//      s = victim->slab;
-//      printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
-//      pread(s->fd, vict_file_gc, s->size_on_disk, 0);
-//
-//      insert_ptr = create_fsst_file(victim->level);
-//      insert_ptr->seq = s->seq;
-//      sprintf(path, FSST_PATH, insert_ptr->level, insert_ptr->seq);
-//      insert_ptr->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
-//      gc_off = 0;
-//      f_off = 0;
-//      gc_ioff = 0;
-//
-//      R_LOCK(&victim->slab->tree_lock);
-//      btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index_gc);
-//      R_UNLOCK(&victim->slab->tree_lock);
-//
-//      if (gc_off) {
-//        write(insert_ptr->fd, new_data_gc, gc_off);
-//        insert_ptr->ioff_start = f_off;
-//        insert_ptr->file_size = f_off + gc_ioff;
-//      }
-//      write(insert_ptr->fd, new_index_gc, gc_ioff);
-//      insert_ptr->index_buf = malloc(gc_ioff);
-//      insert_ptr->page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
-//      memcpy(insert_ptr->index_buf, new_index_gc, gc_ioff);
-//
-//      insert_fsst_file(insert_ptr);
-//
-//      s->min = -1;
-//      s->max = 0;
-//      W_LOCK(&s->tree_lock);
-//
-//      btree_free(s->tree);
-//      inc_empty_tree();
-//      s->tree = NULL;
-//      s->tree_node = NULL;
-//      W_UNLOCK(&s->tree_lock);
-//
-//      sprintf(path, "/proc/self/fd/%d", s->fd);
-//      if((len = readlink(path, spath, 512)) < 0)
-//        die("READLINK\n");
-//      spath[len] = 0;
-//      printf("END GC %s\n", spath);
-//      close(s->fd);
-//      unlink(spath);
-//  } while (victim);
-//
-//  return 0;
-//}
-
-//static void *gc_worker(void *pdata) {
-//  vict_file_gc = aligned_alloc(PAGE_SIZE, 16384*PAGE_SIZE);
-//  new_data_gc = aligned_alloc(PAGE_SIZE, 2*PAGE_SIZE);
-//  new_index_gc = aligned_alloc(PAGE_SIZE, 64*PAGE_SIZE);
-//
-//  if (!vict_file_gc)
-//    die("FSST Static Buf Error\n");
-//
-//  while (1) {
-//    for (size_t i = 0; i < NODE_BATCH; i++) {
-//      char path[512];
-//      char spath[512];
-//      int len;
-//      tree_entry_t *victim = rbq_dequeue(GC);
-//      struct slab *s;
-//      if (!victim)
-//        goto gc_sleep;
-//      s = victim->slab;
-//      printf("GC %lu\n", i);
-//      pread(s->fd, vict_file_gc, s->size_on_disk, 0);
-//
-//      printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
-//      insert_ptr = create_fsst_file(victim->level);
-//      insert_ptr->seq = s->seq;
-//      sprintf(path, FSST_PATH, insert_ptr->level, insert_ptr->seq);
-//      insert_ptr->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
-//      gc_off = 0;
-//      f_off = 0;
-//      gc_ioff = 0;
-//
-//      R_LOCK(&victim->slab->tree_lock);
-//      btree_forall_invalid(victim->slab->tree, skip_or_invalidate_index_gc);
-//      R_UNLOCK(&victim->slab->tree_lock);
-//
-//      if (gc_off) {
-//        write(insert_ptr->fd, new_data_gc, gc_off);
-//        insert_ptr->ioff_start = f_off;
-//        insert_ptr->file_size = f_off + gc_ioff;
-//      }
-//      write(insert_ptr->fd, new_index_gc, gc_ioff);
-//      insert_ptr->index_buf = malloc(gc_ioff);
-//      insert_ptr->page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
-//      memcpy(insert_ptr->index_buf, new_index_gc, gc_ioff);
-//
-//      insert_fsst_file(insert_ptr);
-//
-//      s->min = -1;
-//      s->max = 0;
-//      W_LOCK(&s->tree_lock);
-//
-//      btree_free(s->tree);
-//      inc_empty_tree();
-//      s->tree = NULL;
-//      s->tree_node = NULL;
-//      W_UNLOCK(&s->tree_lock);
-//
-//      sprintf(path, "/proc/self/fd/%d", s->fd);
-//      if((len = readlink(path, spath, 512)) < 0)
-//        die("READLINK\n");
-//      spath[len] = 0;
-//      printf("END GC %s\n", spath);
-//      close(s->fd);
-//      unlink(spath);
-//    }
-//
-//gc_sleep:
-//    sleep(1);
-//  }
-//}
-
 void sleep_until_fsstq_empty(void) {
-    while (!rbq_isEmpty(FSST)) {
+    while (!bgq_is_empty(FSST)) {
         NOP10();
     }
     return;
@@ -525,7 +339,6 @@ void fsst_worker_init(void) {
   INIT_LOCK(&table_lock, NULL);
   pthread_create(&t, NULL, fsst_worker, NULL);
   pthread_create(&t, NULL, gc_async_worker, gtx);
-
 }
 
 static void gc_finalize(struct gc_context *gtx, struct slab *s) {
@@ -606,13 +419,13 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
 
 static void gc_dequeue_requests(struct gc_context *gtx) {
    size_t retries =  0;
-   size_t pending = rbq_count(GC);
+   size_t pending = bgq_count(GC);
    tree_entry_t *victim;
 
    if(pending == 0)
       return;
 
-   victim = rbq_front(GC);
+   victim = bgq_front(GC);
    while (1) {
       index_entry_t e = {NULL, -1};
       uint64_t key;
@@ -628,7 +441,7 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
         sprintf(path, FSST_PATH, f->level, f->seq);
         f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
         gtx->d->nb_entries = 0;
-        btree_allvalid_key(victim->slab->tree, gtx->d);
+        subtree_allvalid_key(victim->slab->tree, gtx->d);
         fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
         // printf("GC %lu\n", i);
         // printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
@@ -647,7 +460,7 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
             (gtx->f_off-1) / PAGE_SIZE);
         }
         gtx->gc_off = 0;
-        rbq_dequeue(GC);
+        bgq_dequeue(GC);
         gtx->f->ioff_start = gtx->f_off;
         gtx->f->file_size = gtx->f_off + gtx->gc_ioff;
         gtx->f->index_buf = malloc(gtx->gc_ioff);
@@ -698,10 +511,10 @@ static void *gc_async_worker(void *pdata) {
          gc_ioengine_process_completed_ios(gtx->io_ctx);
       }
 
-      volatile size_t pending = rbq_count(GC);
+      volatile size_t pending = bgq_count(GC);
       while(!pending && !io_pending(gtx->io_ctx)) {
          usleep(2);
-         pending = rbq_count(GC);
+         pending = bgq_count(GC);
       }
 
       gc_dequeue_requests(gtx);
@@ -752,7 +565,6 @@ void read_item_async_from_fsst(struct slab_callback *callback) {
 
     // find file
     f = find_fsst_file(key, llevel);
-
 
     if (!f)
       return;
