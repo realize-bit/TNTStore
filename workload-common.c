@@ -300,6 +300,10 @@ void run_workload(struct workload *w, bench_t b) {
 
    if(!w->api->handles(b))
       die("The database has not been configured to run this benchmark! (Are you trying to run a production benchmark on a database configured for YCSB?)");
+  if (b == dbbench_all_random || b == dbbench_all_dist
+  ||  b == dbbench_prefix_random || b == dbbench_prefix_dist)
+      w->api->init(w, b);
+
 
    declare_timer;
    start_timer {

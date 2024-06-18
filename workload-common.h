@@ -22,9 +22,14 @@ typedef enum available_bench {
    ycsb_e_zipfian,
    prod1,
    prod2,
+   dbbench_all_random,
+   dbbench_all_dist,
+   dbbench_prefix_random,
+   dbbench_prefix_dist,
 } bench_t;
 
 struct workload_api {
+   void (*init)(struct workload *w, bench_t b);
    int (*handles)(bench_t w); // do we handle that workload?
    void (*launch)(struct workload *w, bench_t b); // launch workload
    const char* (*name)(bench_t w); // pretty print the benchmark (e.g., "YCSB A - Uniform")
@@ -32,6 +37,7 @@ struct workload_api {
    char* (*create_unique_item)(uint64_t uid, uint64_t max_uid); // allocate an item in memory and return it
 };
 extern struct workload_api YCSB;
+extern struct workload_api DBBENCH;
 extern struct workload_api PRODUCTION;
 
 struct workload {

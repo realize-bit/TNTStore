@@ -11,6 +11,7 @@ int main(int argc, char **argv) {
    /* Definition of the workload, if changed you need to erase the DB before relaunching */
    struct workload w = {
       .api = &YCSB,
+      // .api = &DBBENCH,
       //.nb_items_in_db = 100000000LU,
       .nb_items_in_db = 50000000LU,
       .nb_load_injectors = 4,
@@ -74,6 +75,7 @@ int main(int argc, char **argv) {
       // ycsb_c_uniform, 
       // ycsb_a_zipfian,
       ycsb_c_zipfian,
+      // dbbench_prefix_dist,
    };
 
       // sleep(5);
@@ -83,12 +85,15 @@ int main(int argc, char **argv) {
 
    foreach(workload, workloads) {
       if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
-         w.nb_requests = 2000000LU; // requests for YCSB E are longer (scans) so we do less
+         w.nb_requests = 2000000LU; // requests for YCSB E are longer (scans) so we do less 
+      } else if (workload == dbbench_all_random || workload == dbbench_all_dist
+        ||  workload == dbbench_prefix_random || workload == dbbench_prefix_dist) {
+         w.nb_requests = 420000000LU;
       } else {
-         w.nb_requests = 100000000LU;
+         // w.nb_requests = 100000000LU;
+         w.nb_requests = 420000000LU;
       }
       // w.nb_requests = 50000000LU;
-      w.nb_requests = 50000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;
