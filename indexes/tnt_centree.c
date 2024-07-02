@@ -32,7 +32,6 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 
 struct slab {
    struct slab_context *ctx;
-   struct slab_callback **batched_callbacks;
 
    uint64_t key;
    uint64_t min;
@@ -45,21 +44,16 @@ struct slab {
    unsigned char imm;
    pthread_rwlock_t tree_lock;
 
-   unsigned char batch_idx;
-   unsigned char nb_batched;
 
    //TODO::JS::구조체 수정
    size_t item_size;
    size_t nb_items;   // Number of non freed items
    size_t last_item;  // Total number of items, including freed
    size_t nb_max_items;
+   size_t hot_pages;
 
    int fd;
    size_t size_on_disk;
-
-   size_t nb_free_items, nb_free_items_in_memory;
-   struct freelist_entry *freed_items, *freed_items_tail;
-   btree_t *freed_items_recovery, *freed_items_pointed_to;
    uint64_t update_ref;
 };
 
@@ -205,10 +199,11 @@ node centree_insert(centree t, void* key, tree_entry_t* value, compare_func comp
       while (1) {
          int comp_result = compare(key, n->key);
 
+         level++;
          if (comp_result <= 0) {
             if (n->left == NULL) {
                n->left = inserted_node;
-	       __sync_fetch_and_add(&t->nb_elements, 1);
+	             __sync_fetch_and_add(&t->nb_elements, 1);
                break;
             } else {
                n = n->left;
@@ -217,13 +212,12 @@ node centree_insert(centree t, void* key, tree_entry_t* value, compare_func comp
             assert (comp_result > 0);
             if (n->right == NULL) {
                n->right = inserted_node;
-	       __sync_fetch_and_add(&t->nb_elements, 1);
+	             __sync_fetch_and_add(&t->nb_elements, 1);
                break;
             } else {
                n = n->right;
             }
          }
-         level++;
       }
       inserted_node->parent = n;
    }
@@ -252,14 +246,14 @@ void print2DUtil(node n, int space)
     for (int i = 1; i < space; i++)
         printf(" ");
     if (!n->imm)
-      printf("%lu,%lu:%lu-%lu,%d,%lu\n", n->value.seq, n->value.level, n->value.slab->min, n->value.slab->max, n->imm, n->value.touch);
+      printf("%lu,%lu:%lu//%lu\n", n->value.seq, n->value.level, n->value.slab->nb_items, n->value.slab->hot_pages);
     else
-      printf("%lu,%lu:0-0,%d,%lu\n", n->value.seq, n->value.level, n->imm, n->value.touch);
+      printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);
  
     // Process left child
     print2DUtil(n->left, space);
 }
- 
+
 void centree_print_nodes(node n, compare_func show) {
    if(!n)
       return;

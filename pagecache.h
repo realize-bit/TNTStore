@@ -40,6 +40,8 @@ struct lru {
    struct lru *next;
    uint64_t hash;
    void *page;
+   void *slab;
+   int hot_page_checked;
    int contains_data;
    int dirty;
 };
@@ -53,6 +55,7 @@ struct pagecache {
 
 void page_cache_init(struct pagecache *p);
 int get_page(struct pagecache *p, uint64_t hash, void **page, struct lru **lru);
+int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page, struct lru **lru, struct slab *s);
 int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size, void **page, struct lru **lru);
 
 #endif

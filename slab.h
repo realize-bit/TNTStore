@@ -45,6 +45,7 @@ struct slab {
    size_t nb_items;   // Number of non freed items
    size_t last_item;  // Total number of items, including freed
    size_t nb_max_items;
+   size_t hot_pages;
 
    int fd;
    size_t size_on_disk;

@@ -38,6 +38,7 @@ typedef struct centree_node_t {
     struct centree_node_t* left;
     struct centree_node_t* right;
     struct centree_node_t* parent;
+    struct centree_node_t* prev;
     struct centree_node_t* next;
     unsigned char imm;
     // unsigned char gc;
@@ -48,7 +49,7 @@ typedef struct centree_t {
     centree_node last_visited_node;
     int nb_elements;
     int empty_elements;
-    int total_ref_count;
+    int start_level;
 } *centree;
 
 typedef struct bgq_node_t {

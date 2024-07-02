@@ -191,13 +191,13 @@ char *read_page_async(struct slab_callback *callback) {
    uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
    // struct slab_context *c = get_slab_context_uidx(callback->slab_idx);
    struct io_context *ctx = get_io_context(callback->ctx);
-   uint64_t hash = get_hash_for_page(callback->slab->fd, page_num);
+   uint64_t hash = get_hash_for_page(callback->slab->seq, page_num);
 
    // callback->count = 1;
    if (callback->action == ADD)
       printf("NO NO LOOKUP\n");
    // printf("worker: %d, page_num: %lu\n", get_worker_ucb(callback), page_num);
-   alread_used = get_page(get_pagecache(callback->ctx), hash, &disk_page, &lru_entry);
+   alread_used = get_page_with_slab(get_pagecache(callback->ctx), hash, &disk_page, &lru_entry, callback->slab);
    callback->lru_entry = lru_entry;
    if(lru_entry->contains_data) {   // content is cached already
       __sync_add_and_fetch(&cache_hit, 1);

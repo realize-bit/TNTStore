@@ -116,6 +116,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    struct stat sb;
    char path[512];
    struct slab *s = calloc(1, sizeof(*s));
+   int cur_seq = -1;
 
    size_t disk = slab_worker_id / (get_nb_workers()/get_nb_disks());
    sprintf(path, PATH, disk, slab_worker_id, 0LU, key);
@@ -131,7 +132,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
       s->size_on_disk = 16384*PAGE_SIZE;
    }
 
-    __sync_add_and_fetch(&create_sequence, 1);
+   cur_seq = __sync_add_and_fetch(&create_sequence, 1);
    size_t nb_items_per_page = PAGE_SIZE / 1024;
    s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
    // TODO::JS::구조체 수정
@@ -143,9 +144,10 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->min = -1;
    s->max = 0;
    s->key = key;
-   s->seq = create_sequence;
+   s->seq = cur_seq;
    s->imm = 0;
    s->update_ref = 0;
+   s->hot_pages = 0;
 
 
    INIT_LOCK(&s->tree_lock, NULL);

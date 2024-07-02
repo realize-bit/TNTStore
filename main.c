@@ -12,8 +12,8 @@ int main(int argc, char **argv) {
    struct workload w = {
       .api = &YCSB,
       // .api = &DBBENCH,
-      //.nb_items_in_db = 100000000LU,
-      .nb_items_in_db = 50000000LU,
+      .nb_items_in_db = 100000000LU,
+      // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and OVERVIEW.md)
    };
@@ -90,14 +90,15 @@ int main(int argc, char **argv) {
         ||  workload == dbbench_prefix_random || workload == dbbench_prefix_dist) {
          w.nb_requests = 420000000LU;
       } else {
-         // w.nb_requests = 100000000LU;
-         w.nb_requests = 420000000LU;
+         w.nb_requests = 100000000LU;
+         // w.nb_requests = 420000000LU;
       }
-      // w.nb_requests = 50000000LU;
+      w.nb_requests = 100000000LU;
       run_workload(&w, workload);
       printf("lookup hit: %d\n", cache_hit);
       cache_hit = 0;
    }
+   tnt_print();
 
   /*
   foreach(workload, workloads) {

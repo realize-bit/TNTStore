@@ -46,7 +46,6 @@ struct index_entry { // This index entry could be made much smaller by, e.g., ha
 struct tree_entry { // This index entry could be made much smaller by, e.g., have 64b for [slab_size, slab_idx] it is then easy to do size -> slab* given a slab context
    uint64_t key;
    uint64_t seq;
-   uint64_t touch;
    uint64_t level;
    struct slab *slab;
 };

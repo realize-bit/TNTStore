@@ -148,7 +148,6 @@ void tnt_subtree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key)
          .seq = s->seq,
          .key = tmp_key,
          .slab = s,
-         .touch = 0,
    };
    s->tree = tree;
    s->filter = filter;
@@ -174,57 +173,54 @@ int subtree_worker_invalid_utree(subtree_t *tree, void *item) {
 // TNT
 
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e) {
-   centree t = centree_root;
-   centree_node n = t->root, prev;
+  centree t = centree_root;
+  centree_node n = t->root, prev;
 
-   R_LOCK(&centree_root_lock);
-   while (1) {
-      struct slab *s = n->value.slab;
-      int comp_result;
+  R_LOCK(&centree_root_lock);
+  while (1) {
+    struct slab *s = n->value.slab;
+    int comp_result;
 
-      R_LOCK(&s->tree_lock);
-      if (s->imm == 0) {
+    R_LOCK(&s->tree_lock);
+    if (s->imm == 0) {
+      R_UNLOCK(&s->tree_lock);
+      if (old_e && s == old_e->slab) {
         s->update_ref++;
-        n->value.touch++;
-        __sync_fetch_and_add(&centree_root->total_ref_count, 1);
-        R_UNLOCK(&s->tree_lock);
-        if (old_e && s == old_e->slab) {
-          // IN-PLACE UPDATE
-          // old_e->slab->update_ref++;
-          *idx = -1;
-          break;
-        }
-       	W_LOCK(&s->tree_lock);
-        s->update_ref++;
-	if (s->last_item >= s->nb_max_items) {
-          W_UNLOCK(&s->tree_lock);
-	  continue;
-	}
-        assert(s->last_item < s->nb_max_items);
-        *idx = s->last_item++;
-        s->nb_items++;
-        if(s->last_item == s->nb_max_items) 
-          s->imm = 1;
-        W_UNLOCK(&s->tree_lock);
+        // IN-PLACE UPDATE
+        *idx = -1;
         break;
+      }
+      W_LOCK(&s->tree_lock);
+      if (s->last_item >= s->nb_max_items) {
+        W_UNLOCK(&s->tree_lock);
+        continue;
+      }
+      assert(s->last_item < s->nb_max_items);
+      s->update_ref++;
+      *idx = s->last_item++;
+      s->nb_items++;
+      if(s->last_item == s->nb_max_items) 
+        s->imm = 1;
+      W_UNLOCK(&s->tree_lock);
+      break;
+    } else {
+      assert(s->last_item == s->nb_max_items);
+    }
+    R_UNLOCK(&s->tree_lock);
+    prev = n;
+    do {
+      R_LOCK(&s->tree_lock);
+      comp_result = tnt_pointer_cmp((void*)key, prev->key);
+      if (comp_result <= 0) {
+        n = prev->left;
       } else {
-        assert(s->last_item == s->nb_max_items);
+        assert(comp_result > 0);
+        n = prev->right;
       }
       R_UNLOCK(&s->tree_lock);
-      prev = n;
-      do {
-        R_LOCK(&s->tree_lock);
-        comp_result = tnt_pointer_cmp((void*)key, prev->key);
-        if (comp_result <= 0) {
-          n = prev->left;
-        } else {
-          assert(comp_result > 0);
-          n = prev->right;
-        }
-        R_UNLOCK(&s->tree_lock);
-        if (!n) {
-	    int cur_nb_elements = t->nb_elements;
-            R_UNLOCK(&centree_root_lock);
+      if (!n) {
+        int cur_nb_elements = t->nb_elements;
+        R_UNLOCK(&centree_root_lock);
         while(1) {
           if(cur_nb_elements >= t->nb_elements) { // Queue is full, wait
             NOP10();
@@ -238,10 +234,10 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e) {
       }
     } while (!n);
   }
-   R_UNLOCK(&centree_root_lock);
-   if (n)
+  R_UNLOCK(&centree_root_lock);
+  if (n)
     return &n->value;
-   else
+  else
     return NULL;
 }
 
@@ -291,25 +287,20 @@ index_entry_t *tnt_index_lookup(void *item) {
    while (n != NULL) {
       struct slab *s = n->value.slab;
       int comp_result;
-      int enqueue = 0;
 
       R_LOCK(&s->tree_lock);
       if (s->min != -1) {
         if (filter_contain(s->filter, (unsigned char *)&key)) {
          tmp = subtree_worker_lookup_utree(s->tree, item);
-         if (tmp) {
-          e = tmp;
-          if (!TEST_INVAL(e->slab_idx)) {
-            n->value.touch++;
-            __sync_fetch_and_add(&centree_root->total_ref_count, 1);
-          }
+         if (tmp && !TEST_INVAL(tmp->slab_idx)) {
+            e = tmp;
+            R_UNLOCK(&s->tree_lock);
+            break;
          } 
         }
       }
       comp_result = tnt_pointer_cmp((void*)key, n->key);
       R_UNLOCK(&s->tree_lock);
-      if (enqueue) 
-        bgq_enqueue(GC, n);
 
       if (comp_result <= 0) {
          n = n->left;
@@ -457,10 +448,3 @@ int get_number_of_subtree() {
   return n;
 }
 
-uint64_t get_total_reference() {
-  uint64_t n;
-  R_LOCK(&centree_root_lock);
-  n = centree_root->total_ref_count;
-  R_UNLOCK(&centree_root_lock);
-  return n;
-}
