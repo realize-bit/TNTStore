@@ -421,6 +421,25 @@ char *write_gc_async(struct gc_context *gtx, uint64_t buf_num, uint64_t file_num
    return NULL;
 }
 
+char *read_gc_async(struct gc_context *gtx, uint64_t buf_num, int file_fd) {
+   struct io_context *ctx = get_io_context_from_gtx(gtx);
+   int buffer_idx = ctx->sent_io % ctx->max_pending_io;
+   struct iocb *_iocb = &ctx->iocb[buffer_idx];
+   char *page = get_victbuf_from_gtx(gtx);
+   void *disk_page = &page[buf_num * PAGE_SIZE];
+
+   // printf("buf_num: %lu\n", buf_num);
+   memset(_iocb, 0, sizeof(*_iocb));
+   _iocb->aio_fildes = file_fd;
+   _iocb->aio_lio_opcode = IOCB_CMD_PREAD;
+   _iocb->aio_buf = (uint64_t)disk_page;
+   _iocb->aio_offset = buf_num * PAGE_SIZE;
+   _iocb->aio_nbytes = PAGE_SIZE;
+   if(ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
+      die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n", ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
+   ctx->sent_io++;
+   return NULL;
+}
 
 /* Enqueue requests */
 void gc_ioengine_enqueue_ios(struct io_context *ctx) {

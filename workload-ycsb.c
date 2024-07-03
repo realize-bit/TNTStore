@@ -46,6 +46,9 @@ static void _launch_ycsb(int test, int nb_requests, int zipfian) {
          kv_read_async(cb);
       }
       periodic_count(1000, "YCSB Load Injector (%lu%%)", i*100LU/nb_requests);
+
+      if (i==(nb_requests/2)) 
+         cond_check_and_gc_wakeup();
    }
 }
 

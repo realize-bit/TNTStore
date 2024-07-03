@@ -16,6 +16,7 @@ struct gc_context;
 int get_fd_from_gtx(struct gc_context *gtx);
 struct fsst_file *get_file_from_gtx(struct gc_context *gtx);
 char *get_databuf_from_gtx(struct gc_context *gtx);
+char *get_victbuf_from_gtx(struct gc_context *gtx);
 struct io_context *get_io_context_from_gtx(struct gc_context *gtx);
 
 struct fsst_file {
@@ -51,5 +52,6 @@ void read_item_async_from_fsst(struct slab_callback *callback);
 void flush_batched_load(void);
 void fsst_worker_init(void);
 void sleep_until_fsstq_empty(void);
+void cond_check_and_gc_wakeup(void);
 
 #endif

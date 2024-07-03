@@ -31,6 +31,7 @@ static int nb_disks = 0;
 static int nb_workers_launched = 0;
 static int nb_workers_ready = 0;
 
+uint64_t nb_totals;
 int try_fsst = 0;
 
 // static struct pagecache *pagecaches __attribute__((aligned(64)));
@@ -464,6 +465,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk, int nb_distributo
    nb_disks = _nb_disks;
    nb_workers = nb_disks * nb_workers_per_disk;
    nb_distributors = nb_disks * nb_distributors_per_disk;
+   nb_totals = 0;
 
    create_root_slab();
 

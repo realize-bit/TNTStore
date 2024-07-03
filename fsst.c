@@ -6,7 +6,10 @@ static int cur = 0;
 static char *vict_file_data = NULL;
 static char *vict_file_fsst = NULL;
 static pthread_lock_t table_lock;
+extern uint64_t nb_totals;
 
+static pthread_cond_t gc_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t gc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // static char *vict_file_gc = NULL;
 // static char *new_data_gc = NULL;
@@ -27,6 +30,8 @@ struct gc_context {
    unsigned int gc_ioff;
    unsigned int f_off;
    uint32_t ing;
+   uint32_t level;
+   tree_entry_t *victim;
    // uint64_t last_key;
    uint64_t rdt;                         // Latest timestamp
 };
@@ -42,6 +47,11 @@ struct fsst_file *get_file_from_gtx(struct gc_context *gtx) {
 char *get_databuf_from_gtx(struct gc_context *gtx) {
   return gtx->data;
 }
+
+char *get_victbuf_from_gtx(struct gc_context *gtx) {
+  return gtx->vict_file;
+}
+
 
 struct io_context *get_io_context_from_gtx(struct gc_context *gtx) {
   return gtx->io_ctx;
@@ -345,11 +355,15 @@ static void gc_finalize(struct gc_context *gtx, struct slab *s) {
      char path[512];
      char spath[512];
      int len;
+     int removed = gtx->ing;
 
      insert_fsst_file(gtx->f);
      gtx->f_off = 0;
      gtx->gc_ioff = 0;
      gtx->ing = 0;
+     gtx->victim = NULL;
+     gtx->f = NULL;
+     gtx->d->nb_entries = 0;
 
      printf("FIN GC: %lu, min: %lu, max: %lu\n", s->key, s->min, s->max);
      W_LOCK(&s->tree_lock);
@@ -362,13 +376,15 @@ static void gc_finalize(struct gc_context *gtx, struct slab *s) {
      s->tree_node = NULL;
      W_UNLOCK(&s->tree_lock);
 
+     __sync_fetch_and_sub(&nb_totals, removed);
+
      sprintf(path, "/proc/self/fd/%d", s->fd);
      if((len = readlink(path, spath, 512)) < 0)
        die("READLINK\n");
      spath[len] = 0;
      printf("END GC %s\n", spath);
      close(s->fd);
-     unlink(spath);
+     // unlink(spath);
 }
 
 void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
@@ -417,35 +433,107 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
    return;
 }
 
-static void gc_dequeue_requests(struct gc_context *gtx) {
-   size_t retries =  0;
-   size_t pending = bgq_count(GC);
-   tree_entry_t *victim;
+static double calculate_cost_benefit(struct slab *s) {
+  double cb = 0;
+  double hot, cold, valid, inval, unused; 
+  
+  R_LOCK(&s->tree_lock);
+  hot = s->hot_pages * 4;
+  valid = s->nb_items;
+  inval = s->last_item - valid;
+  cold = valid - hot;
+  unused = s->nb_max_items - s->nb_max_items;
+  R_UNLOCK(&s->tree_lock);
 
-   if(pending == 0)
+  cb = (inval + cold + (0.5 * unused)) / (hot + cold);
+
+  return cb;
+}
+
+static tree_entry_t *get_victim_centnode(void) {
+  background_queue *q = bgq_get(GC);
+  centree_node n;
+  centree_node max_node;
+  double max_value;
+
+  if (q->count == 0)
+    return NULL;
+
+  n = bgq_front_node(GC);
+  while (n && n->value.slab->min == -1) {
+    n = dequeue_specific_node(q, n);
+  }
+
+  if (n == NULL) // 모든 노드가 제거된 경우
+    return NULL;
+
+  max_node = n;
+  max_value = calculate_cost_benefit(n->value.slab);
+
+  while (1) {
+    double v;
+    n = get_next_node(q, n);
+
+    if (!n)
+      break;
+
+    if (n->value.slab->min == -1) {
+      dequeue_specific_node(q, n);
+      continue;
+    }
+    if ((v = calculate_cost_benefit(n->value.slab)) > max_value) {
+      max_node = n;
+      max_value = v;
+    }
+    // printf("max value check %f vs %f\n", v, max_value);
+  }
+
+  dequeue_specific_node(q, max_node);
+  return &max_node->value;
+}
+
+static void gc_dequeue_requests(struct gc_context *gtx) {
+   // size_t retries =  0;
+
+   // if (gtx->ing == 0 && bgq_count(GC) == 0)
+   //    return;
+
+   if (gtx->victim == NULL || gtx->f == NULL)
       return;
 
-   victim = bgq_front(GC);
    while (1) {
       index_entry_t e = {NULL, -1};
-      uint64_t key;
-      uint64_t *next = NULL;
-      struct fsst_file *f;
+      // uint64_t key;
+      // uint64_t *next = NULL;
+      // struct fsst_file *f;
 
-      if (!gtx->ing) {
-        char path[512];
-        struct slab *s = victim->slab;
-        pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
-        gtx->f = f = create_fsst_file(victim->level);
-        f->seq = s->seq;
-        sprintf(path, FSST_PATH, f->level, f->seq);
-        f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
-        gtx->d->nb_entries = 0;
-        subtree_allvalid_key(victim->slab->tree, gtx->d);
-        fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
-        // printf("GC %lu\n", i);
-        // printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
-      }
+      //if (!gtx->ing) {
+      //  char path[512];
+      //  struct slab *s;
+      //  gtx->victim = get_victim_centnode();
+      //  if (!gtx->victim)
+      //    break;
+      //  s = gtx->victim->slab;
+      //  if (s->min == -1) {
+      //    // retry
+      //    gtx->victim = NULL;
+      //    continue;
+      //  }
+
+      //  R_LOCK(&s->tree_lock);
+      //  subtree_allvalid_key(s->tree, gtx->d);
+      //  R_UNLOCK(&s->tree_lock);
+
+      //  gtx->f = f = create_fsst_file(gtx->victim->level);
+      //  f->seq = s->seq;
+
+      //  pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
+      //  sprintf(path, FSST_PATH, f->level, f->seq);
+      //  f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
+      //  fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
+      //  // printf("GC %lu\n", i);
+      //  // printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
+      //}
       e = gtx->d->entries[gtx->ing++];
 
       // 이번에 처리할 index 찾아오고, 다음 인덱스 키값 리턴해서 가지고 있기
@@ -460,13 +548,13 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
             (gtx->f_off-1) / PAGE_SIZE);
         }
         gtx->gc_off = 0;
-        bgq_dequeue(GC);
+        // bgq_dequeue(GC);
         gtx->f->ioff_start = gtx->f_off;
         gtx->f->file_size = gtx->f_off + gtx->gc_ioff;
         gtx->f->index_buf = malloc(gtx->gc_ioff);
         gtx->f->page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
         memcpy(gtx->f->index_buf, gtx->index, gtx->gc_ioff);
-        gc_finalize(gtx, victim->slab);
+        gc_finalize(gtx, gtx->victim->slab);
 
         // TODO:JS
         // write(insert_ptr->fd, new_index_gc, gc_ioff);
@@ -487,9 +575,26 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
   }
 }
 
+void cond_check_and_gc_wakeup(void) {
+  uint64_t max_entry = (MAX_MEM - PAGE_CACHE_SIZE) / BYTE_PER_KV;
+  uint64_t gc_start_trshld = max_entry * GC_START_TRSHLD;
+
+  printf("nb_totals: %lu, start_threhold: %lu\n", nb_totals, gc_start_trshld);
+  if (nb_totals <= gc_start_trshld)
+    return;
+
+  pthread_mutex_lock(&gc_mutex);
+  pthread_cond_signal(&gc_cond);
+  pthread_mutex_unlock(&gc_mutex);
+
+  return;
+}
+
 static void *gc_async_worker(void *pdata) {
    struct gc_context *gtx = pdata;
-   size_t max_pending_callbacks = MAX_NB_PENDING_CALLBACKS_PER_WORKER;
+   // size_t max_pending_callbacks = MAX_NB_PENDING_CALLBACKS_PER_WORKER;
+   uint64_t max_entry = (MAX_MEM - PAGE_CACHE_SIZE) / BYTE_PER_KV;
+   uint64_t gc_end_trshld = max_entry * GC_END_TRSHLD;
 
    /* Initialize the async io for the worker */
    gtx->max_pending_gc = 64;
@@ -503,6 +608,7 @@ static void *gc_async_worker(void *pdata) {
    gtx->d->hashes = malloc(16384 * 4 * sizeof(*gtx->d->hashes));
    /* Main loop: do IOs and process enqueued requests */
    while(1) {
+      size_t reads = 0;
       gtx->rdt++;
 
       while(io_pending(gtx->io_ctx)) {
@@ -511,11 +617,86 @@ static void *gc_async_worker(void *pdata) {
          gc_ioengine_process_completed_ios(gtx->io_ctx);
       }
 
-      volatile size_t pending = bgq_count(GC);
-      while(!pending && !io_pending(gtx->io_ctx)) {
-         usleep(2);
-         pending = bgq_count(GC);
+      // 현재 gc_end_trshld 보다 작으면 잠든다
+      // printf("GC// nb_totlas: %lu, gc_end_trshld: %lu\n", nb_totals, gc_end_trshld);
+      while (nb_totals < gc_end_trshld) {
+        pthread_mutex_lock(&gc_mutex);
+        pthread_cond_wait(&gc_cond, &gc_mutex);
+        pthread_mutex_unlock(&gc_mutex);
       }
+
+      while (bgq_is_empty(GC)) {
+        background_queue *q = bgq_get(GC);
+        centree_node n;
+        tnt_get_nodes_at_level(gtx->level++, q);
+        printf("level %d\n", gtx->level);
+        n = bgq_front_node(GC);
+        do {
+           if (n->value.slab->imm == 0 || n->value.slab->min == -1)
+             n = dequeue_specific_node(q, n);
+           else
+             n = get_next_node(q, n);
+        } while (n != NULL);
+      }
+      
+      while (!gtx->victim) {
+        struct slab *s;
+        gtx->victim = get_victim_centnode();
+        if (!gtx->victim) {
+          // 큐에서 모든 노드가 제거됨. 큐를 새로 채워야함
+          break;
+        }
+        s = gtx->victim->slab;
+        if (s->min == -1) {
+          // retry
+          gtx->victim = NULL;
+          continue;
+        }
+
+        R_LOCK(&s->tree_lock);
+        subtree_allvalid_key(s->tree, gtx->d);
+        R_UNLOCK(&s->tree_lock);
+      }
+      
+      while (!gtx->f) {
+        struct slab *s;
+
+        if (!gtx->victim)
+          break;
+
+        s = gtx->victim->slab;
+
+        while (reads*4096 < s->size_on_disk && io_pending(gtx->io_ctx) < QUEUE_DEPTH) {
+          read_gc_async(gtx, reads++, s->fd);
+        }
+
+        while (io_pending(gtx->io_ctx)) {
+          gc_ioengine_enqueue_ios(gtx->io_ctx);
+          gc_ioengine_get_completed_ios(gtx->io_ctx);
+          gc_ioengine_process_completed_ios(gtx->io_ctx);
+        }
+
+        if (reads*4096 == s->size_on_disk) {
+          char path[512];
+          struct fsst_file *f;
+          gtx->f = f = create_fsst_file(gtx->victim->level);
+          f->seq = s->seq;
+
+          pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
+          sprintf(path, FSST_PATH, f->level, f->seq);
+          f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
+        }
+
+      }
+
+      gtx->level = 0;
+
+      // printf("GC ing %d\n", gtx->ing);
+      //volatile size_t pending = bgq_count(GC);
+      //while(!pending && !io_pending(gtx->io_ctx)) {
+      //   usleep(2);
+      //   pending = bgq_count(GC);
+      //}
 
       gc_dequeue_requests(gtx);
    }
@@ -580,7 +761,7 @@ void read_item_async_from_fsst(struct slab_callback *callback) {
         pread(f->fd, f->page, PAGE_SIZE, fi->off - off);
         memcpy(callback->item, &f->page[off], fi->sz);
         uint64_t key2 = get_prefix_for_item(callback->item);
-        printf("%d, GoT %lu: %lu, %lu:, (%u, %u)\n", f->fd, key, fi->key, key2, fi->off, fi->sz);
+        // printf("%d, GoT %lu: %lu, %lu:, (%u, %u)\n", f->fd, key, fi->key, key2, fi->off, fi->sz);
         return;
       }
       fi++;

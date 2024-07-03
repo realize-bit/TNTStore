@@ -34,6 +34,8 @@ void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key);
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e);
 tree_entry_t *tnt_traverse_use_seq(int seq);
 
+int tnt_get_nodes_at_level(int level, background_queue* q);
+
 void tnt_index_add(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup(void *item);
 int tnt_index_invalid(void *item);
@@ -41,11 +43,17 @@ int tnt_index_invalid(void *item);
 struct index_scan tnt_scan(void *item, uint64_t size);
 void tnt_print(void);
 
+background_queue *bgq_get(enum fsst_mode m);
 int bgq_is_empty(enum fsst_mode m);
 int bgq_count(enum fsst_mode m);
 void bgq_enqueue(enum fsst_mode m, centree_node n);
 tree_entry_t *bgq_dequeue(enum fsst_mode m);
 tree_entry_t *bgq_front(enum fsst_mode m);
+centree_node bgq_front_node(enum fsst_mode m);
+
+centree_node dequeue_specific_node(background_queue* queue, centree_node target);
+tree_entry_t *get_next_node_entry(background_queue* queue, centree_node target);
+centree_node get_next_node(background_queue* queue, centree_node target);
 
 #include "indexes/filter.h"
 //#define memory_index_init btree_init

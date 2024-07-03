@@ -1,5 +1,6 @@
 #include "headers.h"
 
+extern uint64_t nb_totals;
 /*
  * Create a workload item for the database
  */
@@ -69,6 +70,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
    W_UNLOCK(&s->tree_lock);
+  __sync_fetch_and_add(&nb_totals, 1);
 
    if (enqueue)
       bgq_enqueue(FSST, s->tree_node);

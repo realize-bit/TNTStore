@@ -17,6 +17,11 @@ static uint64_t get_prefix_for_item(char *item) {
    return *(uint64_t*)item_key;
 }
 
+background_queue *bgq_get(enum fsst_mode m) {
+  background_queue *queue = m == GC ? gc_queue : fsst_queue;
+  return queue;
+}
+
 int bgq_is_empty(enum fsst_mode m) {
     background_queue *queue = m == GC ? gc_queue : fsst_queue;
     pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
@@ -99,6 +104,93 @@ tree_entry_t *bgq_front(enum fsst_mode m) {
     return &data->value;
 }
 
+centree_node bgq_front_node(enum fsst_mode m) {
+    background_queue *queue = m == GC ? gc_queue : fsst_queue;
+    pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+    centree_node data;
+    bgq_node *ptr;
+    R_LOCK(&lock);
+    if (is_empty(queue))
+    {
+        W_UNLOCK(&lock);
+        return 0;
+    }
+    ptr = queue->front;
+    data = ptr->data;
+    R_UNLOCK(&lock);
+    
+    return data;
+}
+
+centree_node dequeue_specific_node(background_queue* queue, centree_node target) {
+    if (queue->front == NULL) return NULL;
+
+    bgq_node* current = queue->front;
+    bgq_node* prev = NULL;
+
+    while (current != NULL) {
+        centree_node ret;
+        if (current->data == target) {
+            if (prev == NULL) {
+                // target node is the front node
+                queue->front = current->next;
+                if (queue->front == NULL) {
+                    queue->rear = NULL;
+                }
+            } else {
+                prev->next = current->next;
+                if (current->next == NULL) {
+                    queue->rear = prev;
+                }
+            }
+            if (current->next == NULL)
+                ret = NULL;
+            else
+                ret = current->next->data;
+            free(current);
+            queue->count--;
+            return ret;
+        }
+        prev = current;
+        current = current->next;
+    }
+
+    return NULL;
+}
+
+tree_entry_t *get_next_node_entry(background_queue* queue, centree_node target) {
+    bgq_node* current = queue->front;
+
+    while (current != NULL) {
+        if (current->data == target) {
+            if (current->next != NULL) {
+                return &current->next->data->value;
+            } else {
+                return NULL;
+            }
+        }
+        current = current->next;
+    }
+
+    return NULL;
+}
+
+centree_node get_next_node(background_queue* queue, centree_node target) {
+    bgq_node* current = queue->front;
+
+    while (current != NULL) {
+        if (current->data == target) {
+            if (current->next != NULL) {
+                return current->next->data;
+            } else {
+                return NULL;
+            }
+        }
+        current = current->next;
+    }
+
+    return NULL;
+}
 
 /* ========================================= */
 // Worker for using indexes
@@ -247,6 +339,35 @@ tree_entry_t *tnt_traverse_use_seq(int seq) {
    t = centree_traverse_useq(centree_root, seq);
    R_UNLOCK(&centree_root_lock);
    return t;
+}
+
+int tnt_get_nodes_at_level(int level, background_queue* q) {
+   int current_level = 0;
+   int count = 0;
+   background_queue queue;
+
+   init_queue(&queue);
+   enqueue_centnode(&queue, centree_root->root);
+   while (!is_empty(&queue)) {
+      int level_size = queue.count;
+      if (current_level == level) {
+         while (level_size-- > 0) {
+            centree_node node = dequeue_centnode(&queue);
+            enqueue_centnode(q, node);
+            count++;
+         }
+         break;
+      }
+
+      while (level_size-- > 0) {
+         centree_node node = dequeue_centnode(&queue);
+         if (node->left != NULL) enqueue_centnode(&queue, node->left);
+         if (node->right != NULL) enqueue_centnode(&queue, node->right);
+      }
+      current_level++;
+   }
+
+   return count;
 }
 
 void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key) {
