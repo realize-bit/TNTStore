@@ -118,11 +118,17 @@ int get_page(struct pagecache *p, uint64_t hash, void **page, struct lru **lru) 
    return 0;
 }
 
+static uint64_t extract_page_num_from_hash(uint64_t hash) {
+    uint64_t mask = (1ULL << 40) - 1; // Create a mask for the lower 40 bits
+    return hash & mask; // Extract the lower 40 bits
+}
+
 int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page, struct lru **lru, struct slab *s) {
    void *dst;
    struct lru *lru_entry;
    maybe_unused pagecache_entry_t tmp_entry;
    maybe_unused pagecache_entry_t *old_entry = NULL;
+   uint64_t page_num = extract_page_num_from_hash(hash);
 
    // Is the page already cached?
    pagecache_entry_t *e = tree_lookup(p->hash_to_page, hash);
@@ -135,6 +141,7 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page, struct l
       if (lru_entry->hot_page_checked == 0) {
         __sync_add_and_fetch(&s->hot_pages, 1);
         lru_entry->hot_page_checked = 1;
+        hot_bit_set(s, page_num);
       }
       *page = dst;
       *lru = lru_entry;
@@ -152,8 +159,10 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page, struct l
       dst = p->oldest_page->page;
       // printf("REPLACE PAGE %lu %lu\n", lru_entry->hash, hash);
 
-      if (lru_entry->hot_page_checked)
+      if (lru_entry->hot_page_checked) {
         __sync_fetch_and_sub(&((struct slab*)lru_entry->slab)->hot_pages, 1);
+        hot_bit_unset(s, page_num);
+      }
       tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);
 
       lru_entry->hash = hash;
@@ -222,3 +231,30 @@ int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size, void **
 
    return 0;
 }
+
+void hot_bit_set(struct slab *s, size_t page_offset) {
+    size_t bit_index = page_offset / PAGE_SIZE;
+    size_t byte_index = bit_index / 8;
+    size_t bit_position = bit_index % 8;
+
+    s->hot_bit[byte_index] |= (1 << bit_position);
+}
+
+// 파일의 페이지 오프셋을 주고, 해당하는 비트가 set인지 아닌지 확인하는 함수
+int hot_bit_check(struct slab *s, size_t page_offset) {
+    size_t bit_index = page_offset / PAGE_SIZE;
+    size_t byte_index = bit_index / 8;
+    size_t bit_position = bit_index % 8;
+
+    return (s->hot_bit[byte_index] & (1 << bit_position)) != 0;
+}
+
+// 파일의 페이지 오프셋을 주고, 해당하는 비트를 unset하는 함수
+void hot_bit_unset(struct slab *s, size_t page_offset) {
+    size_t bit_index = page_offset / PAGE_SIZE;
+    size_t byte_index = bit_index / 8;
+    size_t bit_position = bit_index % 8;
+
+    s->hot_bit[byte_index] &= ~(1 << bit_position);
+}
+

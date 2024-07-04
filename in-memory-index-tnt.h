@@ -7,7 +7,7 @@
 #define INDEX_TYPE "TNT"
 #define tnt_index_add_utree subtree_worker_lookup_utree
 #define tnt_index_lookup_utree subtree_worker_lookup_utree
-
+#define tnt_index_invalid_utree subtree_worker_invalid_utree
 #define tnt_index_delete subtree_worker_delete
 
 void btree_init(void);

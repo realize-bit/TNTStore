@@ -10,6 +10,7 @@ extern uint64_t nb_totals;
 
 static pthread_cond_t gc_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t gc_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int inflight_update_gc = 0;
 
 // static char *vict_file_gc = NULL;
 // static char *new_data_gc = NULL;
@@ -172,6 +173,7 @@ void check_and_remove_tree (struct slab_callback *cb, void *item) {
   s->min = -1;
   s->max = 0;
   btree_free(s->tree);
+  free(s->hot_bit);
   inc_empty_tree();
   s->tree = NULL;
   s->tree_node = NULL;
@@ -180,10 +182,10 @@ void check_and_remove_tree (struct slab_callback *cb, void *item) {
   sprintf(path, "/proc/self/fd/%d", s->fd);
   if((len = readlink(path, spath, 128)) < 0)
     die("READLINK\n");
-  close(s->fd);
   spath[len] = 0;
   printf("RM %s\n", spath);
-  unlink(spath);
+  // close(s->fd);
+  // unlink(spath);
 }
 
 // 선택된 인덱스 처리
@@ -281,7 +283,7 @@ int make_fsst(void) {
 
   do {
       victim = pick_garbage_node();
-      while (victim && (victim->slab->imm == 0 || victim->slab->tree == NULL))
+      while (victim && (victim->slab->full == 0 || victim->slab->tree == NULL))
       victim = pick_garbage_node();
 
       if (!victim || cur > 500)
@@ -352,39 +354,49 @@ void fsst_worker_init(void) {
 }
 
 static void gc_finalize(struct gc_context *gtx, struct slab *s) {
-     char path[512];
-     char spath[512];
-     int len;
-     int removed = gtx->ing;
+   insert_fsst_file(gtx->f);
+   gtx->f_off = 0;
+   gtx->gc_ioff = 0;
+   gtx->ing = 0;
+   gtx->victim = NULL;
+   gtx->f = NULL;
+   gtx->d->nb_entries = 0;
+}
 
-     insert_fsst_file(gtx->f);
-     gtx->f_off = 0;
-     gtx->gc_ioff = 0;
-     gtx->ing = 0;
-     gtx->victim = NULL;
-     gtx->f = NULL;
-     gtx->d->nb_entries = 0;
 
-     printf("FIN GC: %lu, min: %lu, max: %lu\n", s->key, s->min, s->max);
-     W_LOCK(&s->tree_lock);
-     s->min = -1;
-     s->max = 0;
+void remove_tree_for_gc(struct slab_callback *cb) {
+   struct slab *s = cb->slab;
+   uint64_t item_nums = cb->item_nums;
+   char path[128], spath[128];
+   int len;
+   free(cb);
 
-     btree_free(s->tree);
-     inc_empty_tree();
-     s->tree = NULL;
-     s->tree_node = NULL;
+   W_LOCK(&s->tree_lock);
+   s->nb_items -= item_nums;
+   if (s->nb_items || (s->max == 0 && s->min == -1)) {
+     // printf("fsst %lu %lu %lu\n", s->nb_items, s->min, s->max);
      W_UNLOCK(&s->tree_lock);
+     return;
+   }
 
-     __sync_fetch_and_sub(&nb_totals, removed);
+   printf("FREE by GC: %lu, min: %lu, max: %lu\n", s->key, s->min, s->max);
+   s->min = -1;
+   s->max = 0;
 
-     sprintf(path, "/proc/self/fd/%d", s->fd);
-     if((len = readlink(path, spath, 512)) < 0)
-       die("READLINK\n");
-     spath[len] = 0;
-     printf("END GC %s\n", spath);
-     close(s->fd);
-     // unlink(spath);
+   btree_free(s->tree);
+   free(s->hot_bit);
+   inc_empty_tree();
+   s->tree = NULL;
+   s->tree_node = NULL;
+   W_UNLOCK(&s->tree_lock);
+
+   sprintf(path, "/proc/self/fd/%d", s->fd);
+   if((len = readlink(path, spath, 512)) < 0)
+     die("READLINK\n");
+   spath[len] = 0;
+   printf("END GC %s\n", spath);
+   // close(s->fd);
+   // unlink(spath);
 }
 
 void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
@@ -394,41 +406,67 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
    char *src;
    uint64_t key;
    struct fsst_index fi;
+   struct slab_callback *cb;
 
-   // 메모리에 카피하고 io 큐에 넣기
-   s = e->slab;
-   slab_idx = GET_SIDX(e->slab_idx);
-   page_num = item_page_num(s, slab_idx);
-   item_size = s->item_size;
+  // 메모리에 카피하고 io 큐에 넣기
+  s = e->slab;
+  slab_idx = GET_SIDX(e->slab_idx);
+  page_num = item_page_num(s, slab_idx);
+  item_size = s->item_size;
+  page_idx = (slab_idx % (PAGE_SIZE/item_size)) * item_size;
+  src = &gtx->vict_file[(page_num*PAGE_SIZE) + page_idx];
 
-   page_idx = (slab_idx % (PAGE_SIZE/item_size)) * item_size;
-   src = &gtx->vict_file[(page_num*PAGE_SIZE) + page_idx];
 
-   memcpy(gtx->data + gtx->gc_off, src, item_size);
-   fi.key = key;
-   fi.off = gtx->f_off;
-   fi.sz = item_size;
-   memcpy(gtx->index + gtx->gc_ioff, &fi, sizeof(struct fsst_index));
+  if (hot_bit_check(s, page_num)) {
+    cb = malloc(sizeof(*cb));
+    cb->slab = e->slab;
+    cb->slab_idx = GET_SIDX(e->slab_idx);
+    cb->cb = NULL;
+    cb->cb_cb = check_and_remove_tree;
+    cb->fsst_slab = e->slab;
+    cb->fsst_idx = GET_SIDX(e->slab_idx);
+    cb->item = malloc(cb->slab->item_size);
 
-   gtx->gc_off += item_size;
-   gtx->f_off += item_size;
-   gtx->gc_ioff += sizeof(struct fsst_index);
+    memcpy(cb->item, src, cb->slab->item_size);
+    kv_update_async(cb);
 
-   key = get_prefix_for_item(src);
-   if (key < gtx->f->smallest)
+  } else {
+
+    memcpy(gtx->data + gtx->gc_off, src, item_size);
+    fi.key = key;
+    fi.off = gtx->f_off;
+    fi.sz = item_size;
+    memcpy(gtx->index + gtx->gc_ioff, &fi, sizeof(struct fsst_index));
+
+    gtx->gc_off += item_size;
+    gtx->f_off += item_size;
+    gtx->gc_ioff += sizeof(struct fsst_index);
+
+    key = get_prefix_for_item(src);
+
+    if (key < gtx->f->smallest)
       gtx->f->smallest = key;
-   if (key > gtx->f->largest)
+    if (key > gtx->f->largest)
       gtx->f->largest = key;
-   gtx->f->fsst_items++;
+
+    gtx->f->fsst_items++;
+    __sync_fetch_and_sub(&nb_totals, 1);
 
 
-   if (gtx->gc_off % PAGE_SIZE == 0) {
-     write_gc_async(gtx, 
-      (gtx->gc_off-1) / PAGE_SIZE,
-      (gtx->f_off-1) / PAGE_SIZE);
-     // write(insert_ptr->fd, new_data_gc, gc_off);
-     // gc_off = 0;
-   }
+
+    if (gtx->gc_off % PAGE_SIZE == 0) {
+      cb = malloc(sizeof(*cb));
+      cb->slab = e->slab;
+      cb->io_cb = remove_tree_for_gc;
+      cb->item_nums = PAGE_SIZE/item_size;
+
+      write_gc_async(gtx, cb, 
+        (gtx->gc_off-1) / PAGE_SIZE,
+        (gtx->f_off-1) / PAGE_SIZE);
+      // write(insert_ptr->fd, new_data_gc, gc_off);
+      // gc_off = 0;
+    }
+  }
 
    return;
 }
@@ -442,10 +480,10 @@ static double calculate_cost_benefit(struct slab *s) {
   valid = s->nb_items;
   inval = s->last_item - valid;
   cold = valid - hot;
-  unused = s->nb_max_items - s->nb_max_items;
+  unused = s->nb_max_items - s->last_item;
   R_UNLOCK(&s->tree_lock);
 
-  cb = (inval + cold + (0.5 * unused)) / (hot + cold);
+  cb = (inval + cold + (0.2 * unused)) / (hot + cold);
 
   return cb;
 }
@@ -503,37 +541,6 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
 
    while (1) {
       index_entry_t e = {NULL, -1};
-      // uint64_t key;
-      // uint64_t *next = NULL;
-      // struct fsst_file *f;
-
-      //if (!gtx->ing) {
-      //  char path[512];
-      //  struct slab *s;
-      //  gtx->victim = get_victim_centnode();
-      //  if (!gtx->victim)
-      //    break;
-      //  s = gtx->victim->slab;
-      //  if (s->min == -1) {
-      //    // retry
-      //    gtx->victim = NULL;
-      //    continue;
-      //  }
-
-      //  R_LOCK(&s->tree_lock);
-      //  subtree_allvalid_key(s->tree, gtx->d);
-      //  R_UNLOCK(&s->tree_lock);
-
-      //  gtx->f = f = create_fsst_file(gtx->victim->level);
-      //  f->seq = s->seq;
-
-      //  pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
-      //  sprintf(path, FSST_PATH, f->level, f->seq);
-      //  f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
-      //  fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
-      //  // printf("GC %lu\n", i);
-      //  // printf("LV: %lu, Key: %lu\n", victim->level, victim->key);
-      //}
       e = gtx->d->entries[gtx->ing++];
 
       // 이번에 처리할 index 찾아오고, 다음 인덱스 키값 리턴해서 가지고 있기
@@ -543,10 +550,15 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
 
       if (gtx->ing == gtx->d->nb_entries) {
         if (gtx->gc_off % PAGE_SIZE != 0) {
-          write_gc_async(gtx, 
+          struct slab_callback *cb = malloc(sizeof(*cb));
+          cb->slab = e.slab;
+          cb->io_cb = remove_tree_for_gc;
+          cb->item_nums = gtx->gc_off % PAGE_SIZE;
+          write_gc_async(gtx, cb,
             (gtx->gc_off-1) / PAGE_SIZE,
             (gtx->f_off-1) / PAGE_SIZE);
         }
+
         gtx->gc_off = 0;
         // bgq_dequeue(GC);
         gtx->f->ioff_start = gtx->f_off;
@@ -558,14 +570,17 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
 
         // TODO:JS
         // write(insert_ptr->fd, new_index_gc, gc_ioff);
-
         break;
       }
 
       // 메모리가 가득 찾거나 펜딩이 다 찼으면
       if(io_pending(gtx->io_ctx) >= QUEUE_DEPTH || gtx->gc_off >= (64 * PAGE_SIZE)) {
         if (gtx->gc_off % PAGE_SIZE != 0) {
-          write_gc_async(gtx, 
+          struct slab_callback *cb = malloc(sizeof(*cb));
+          cb->slab = e.slab;
+          cb->io_cb = remove_tree_for_gc;
+          cb->item_nums = gtx->gc_off % PAGE_SIZE;
+          write_gc_async(gtx, cb,
             (gtx->gc_off-1) / PAGE_SIZE,
             (gtx->f_off-1) / PAGE_SIZE);
         }
@@ -632,7 +647,7 @@ static void *gc_async_worker(void *pdata) {
         printf("level %d\n", gtx->level);
         n = bgq_front_node(GC);
         do {
-           if (n->value.slab->imm == 0 || n->value.slab->min == -1)
+           if (n->value.slab->full == 0 || n->value.slab->min == -1)
              n = dequeue_specific_node(q, n);
            else
              n = get_next_node(q, n);
@@ -681,10 +696,10 @@ static void *gc_async_worker(void *pdata) {
           struct fsst_file *f;
           gtx->f = f = create_fsst_file(gtx->victim->level);
           f->seq = s->seq;
-
-          pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
+          // pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
           sprintf(path, FSST_PATH, f->level, f->seq);
           f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
+          fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
         }
 
       }

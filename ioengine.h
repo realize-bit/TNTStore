@@ -9,7 +9,6 @@ void *safe_pread(int fd, off_t offset);
 typedef void (io_cb_t)(struct slab_callback *);
 char *no_read_page_async(struct slab_callback *cb);
 char *read_page_async(struct slab_callback *cb);
-char *read_file_async(struct slab_callback *cb);
 char *write_page_async(struct slab_callback *cb);
 
 int io_pending(struct io_context *ctx);
@@ -17,7 +16,7 @@ int io_pending(struct io_context *ctx);
 void worker_ioengine_enqueue_ios(struct io_context *ctx);
 void worker_ioengine_get_completed_ios(struct io_context *ctx);
 void worker_ioengine_process_completed_ios(struct io_context *ctx);
-char *write_gc_async(struct gc_context *gtx, uint64_t buf_num, uint64_t file_num);
+char *write_gc_async(struct gc_context *gtx, struct slab_callback *cb, uint64_t buf_num, uint64_t file_num);
 char *read_gc_async(struct gc_context *gtx, uint64_t buf_num, int file_fd);
 void gc_ioengine_enqueue_ios(struct io_context *ctx);
 void gc_ioengine_get_completed_ios(struct io_context *ctx);

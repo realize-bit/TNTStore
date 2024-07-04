@@ -62,10 +62,10 @@ void add_in_tree(struct slab_callback *cb, void *item) {
    if (key > s->max)
       s->max = key;
    if ((s->max - s->min) > (s->nb_max_items * 10)
-       && s->imm && !s->update_ref
-       && !((centree_node)s->tree_node)->imm) {
+       && s->full && !s->update_ref
+       && !((centree_node)s->tree_node)->removed) {
       enqueue = 1;
-      ((centree_node)s->tree_node)->imm = 1;
+      ((centree_node)s->tree_node)->removed = 1;
    }
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
@@ -109,7 +109,6 @@ void *repopulate_db_worker(void *pdata) {
       cb->payload = NULL;
       cb->fsst_slab = NULL;
       cb->fsst_idx = -1;
-      cb->count = 0;
       cb->item = api->create_unique_item(pos[i], w->nb_items_in_db);
       kv_add_async(cb);
       periodic_count(1000, "Repopulating database (%lu%%)", 100LU-(end-i)*100LU/(end - start));

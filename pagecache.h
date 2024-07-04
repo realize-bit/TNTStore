@@ -58,4 +58,7 @@ int get_page(struct pagecache *p, uint64_t hash, void **page, struct lru **lru);
 int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page, struct lru **lru, struct slab *s);
 int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size, void **page, struct lru **lru);
 
+void hot_bit_set(struct slab *s, size_t page_offset);
+int hot_bit_check(struct slab *s, size_t page_offset);
+void hot_bit_unset(struct slab *s, size_t page_offset);
 #endif

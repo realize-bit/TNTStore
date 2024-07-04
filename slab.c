@@ -8,6 +8,7 @@
 
 extern int print;
 extern int load;
+extern uint64_t nb_totals;
 
 /*
  * A slab is a file containing 1 or more items of a given size.
@@ -145,12 +146,13 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->max = 0;
    s->key = key;
    s->seq = cur_seq;
-   s->imm = 0;
+   s->full = 0;
    s->update_ref = 0;
    s->hot_pages = 0;
 
 
    INIT_LOCK(&s->tree_lock, NULL);
+   s->hot_bit = calloc((s->size_on_disk/PAGE_SIZE/8), sizeof(char));
 
    return s;
 }
@@ -245,7 +247,7 @@ void read_item_async(struct slab_callback *callback) {
 
 void scan_item_async(struct slab_callback *callback) {
    callback->io_cb = read_item_async_cb;
-   read_file_async(callback);
+   // read_file_async(callback);
 }
 
 /*
@@ -334,7 +336,7 @@ void add_item_async_cb1(struct slab_callback *callback) {
       // TODO::JS::일단 아이템 사이즈 고정시킴
       if(callback->slab_idx+1 == s->nb_max_items && 
         callback->slab_idx != callback->fsst_idx) {
-         assert(s->imm == 1);
+         assert(s->full == 1);
          assert(s->last_item == s->nb_max_items);
          // s->imm = 1;
          R_UNLOCK(&s->tree_lock);
@@ -387,6 +389,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    tnt_index_add(cb, item);
 
    if(!alrdy) {
+    __sync_fetch_and_add(&nb_totals, 1);
     // s->nb_items++;
     if (filter_add((filter_t *)s->filter, (unsigned char*)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n", s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
@@ -418,10 +421,10 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       s->max = key;
    }
    if ((s->max - s->min) > (s->nb_max_items * 10)
-       && s->imm && !s->update_ref 
-       && !((centree_node)s->tree_node)->imm) {
+       && s->full && !s->update_ref 
+       && !((centree_node)s->tree_node)->removed) {
       enqueue = 1;
-      ((centree_node)s->tree_node)->imm = 1;
+      ((centree_node)s->tree_node)->removed = 1;
    }
 
    // if (s->last_item == s->nb_max_items)
@@ -455,3 +458,4 @@ void remove_and_add_item_async(struct slab_callback *callback) {
    callback->lru_entry = NULL;
    callback->io_cb(callback);
 }
+

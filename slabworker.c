@@ -201,14 +201,12 @@ void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s, siz
    callback->ctx = ctx;
    callback->slab = s;
    callback->slab_idx = slab_idx;
-   callback->count = count;
    return enqueue_slab_callback(ctx, READ_NO_LOOKUP, callback);
 }
 
 void kv_add_async(struct slab_callback *callback) {
    struct slab_context *ctx = get_slab_context(callback->item);
    callback->ctx = ctx;
-   callback->count++;
    enqueue_slab_callback(ctx, ADD, callback);
 }
 
@@ -235,7 +233,6 @@ void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s, size
    callback->ctx = ctx;
    callback->slab = s;
    callback->slab_idx = slab_idx;
-   callback->count++;
    return enqueue_slab_callback(ctx, ADD_NO_LOOKUP, callback);
 }
 
@@ -290,6 +287,10 @@ again:
             if(!e) { // Item is not in DB
                 __sync_add_and_fetch(&try_fsst, 1);
                read_item_async_from_fsst(callback);
+               if (!callback->cb) {
+                  printf("no index for update\n");
+                  break;
+               }
                callback->cb(callback, callback->item);
                break;
             } else {
@@ -311,6 +312,8 @@ again:
                callback->slab = NULL;
                callback->slab_idx = -1;
                callback->cb(callback, NULL);
+               __sync_add_and_fetch(&try_fsst, 1);
+               // read_item_async_from_fsst(callback);
                break;
             }
             

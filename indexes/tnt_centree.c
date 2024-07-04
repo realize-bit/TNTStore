@@ -40,12 +40,10 @@ struct slab {
    void *tree;
    void *tree_node;
    void *filter;
-
-   unsigned char imm;
+   unsigned char *hot_bit;
+   unsigned char full;
    pthread_rwlock_t tree_lock;
 
-
-   //TODO::JS::구조체 수정
    size_t item_size;
    size_t nb_items;   // Number of non freed items
    size_t last_item;  // Total number of items, including freed
@@ -134,7 +132,7 @@ centree centree_create() {
 
 node new_node(void* key, tree_entry_t* value, node left, node right) {
    node result = malloc(sizeof(struct centree_node_t));
-   result->imm = 0;
+   result->removed = 0;
    result->key = key;
    result->value = *value;
    result->left = left;
@@ -245,7 +243,7 @@ void print2DUtil(node n, int space)
     printf("\n");
     for (int i = 1; i < space; i++)
         printf(" ");
-    if (!n->imm)
+    if (!n->removed)
       printf("%lu,%lu:%lu//%lu\n", n->value.seq, n->value.level, n->value.slab->nb_items, n->value.slab->hot_pages);
     else
       printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);

@@ -35,8 +35,8 @@ struct slab {
    void *tree;
    void *tree_node;
    void *filter;
-
-   unsigned char imm;
+   unsigned char *hot_bit;
+   unsigned char full;
    pthread_lock_t tree_lock;
 
 
@@ -77,9 +77,11 @@ struct slab_callback {
    struct lru *lru_entry;
    io_cb_t *io_cb;
 
-   uint64_t count;
    struct slab *fsst_slab;
-   uint64_t fsst_idx;
+   union {
+     uint64_t fsst_idx;
+     uint64_t item_nums;
+   };
    struct slab_context *ctx;
 };
 
@@ -95,5 +97,6 @@ void remove_item_async(struct slab_callback *callback);
 void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
-#endif
+
 void create_root_slab(void);
+#endif

@@ -40,7 +40,7 @@ typedef struct centree_node_t {
     struct centree_node_t* parent;
     struct centree_node_t* prev;
     struct centree_node_t* next;
-    unsigned char imm;
+    unsigned char removed;
     // unsigned char gc;
 } *centree_node;
 

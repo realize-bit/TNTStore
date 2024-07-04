@@ -274,7 +274,7 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e) {
     int comp_result;
 
     R_LOCK(&s->tree_lock);
-    if (s->imm == 0) {
+    if (s->full == 0) {
       R_UNLOCK(&s->tree_lock);
       if (old_e && s == old_e->slab) {
         s->update_ref++;
@@ -292,7 +292,7 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e) {
       *idx = s->last_item++;
       s->nb_items++;
       if(s->last_item == s->nb_max_items) 
-        s->imm = 1;
+        s->full = 1;
       W_UNLOCK(&s->tree_lock);
       break;
     } else {
