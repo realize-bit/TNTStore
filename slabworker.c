@@ -63,7 +63,7 @@ struct slab_context {
    struct pagecache *pagecache __attribute__((aligned(64)));
    struct io_context *io_ctx;
    uint64_t rdt;                         // Latest timestamp
-   char *fsst_idx;
+   char *fsst_buf;
 } *slab_contexts;
 
 /* A file is only managed by 1 worker. File => worker function. */
@@ -286,6 +286,7 @@ again:
          case READ:
             if(!e) { // Item is not in DB
                 __sync_add_and_fetch(&try_fsst, 1);
+               callback->fsst_buf = ctx->fsst_buf;
                read_item_async_from_fsst(callback);
                if (!callback->cb) {
                   printf("no index for update\n");
@@ -314,7 +315,7 @@ again:
                callback->cb(callback, NULL);
                __sync_add_and_fetch(&try_fsst, 1);
                // read_item_async_from_fsst(callback);
-               break;
+               // break;
             }
             
             callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
@@ -442,6 +443,7 @@ static void *worker_distributor_init(void *pdata) {
    printf("[SLAB WORKER %lu] tid %d\n", ctx->worker_id, x);
    pin_me_on(ctx->worker_id);
 
+   ctx->fsst_buf = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
     __sync_add_and_fetch(&nb_workers_ready, 1);
 

@@ -354,14 +354,15 @@ int io_pending(struct io_context *ctx) {
    return ctx->sent_io - ctx->processed_io;
 }
 
-char *write_gc_async(struct gc_context *gtx, struct slab_callback *cb, uint64_t buf_num, uint64_t file_num) {
+char *write_gc_async(struct gc_context *gtx, struct slab_callback *cb, uint64_t buf_num, uint64_t file_num, int is_data) {
    struct io_context *ctx = get_io_context_from_gtx(gtx);
    int buffer_idx = ctx->sent_io % ctx->max_pending_io;
    struct iocb *_iocb = &ctx->iocb[buffer_idx];
-   char *page = get_databuf_from_gtx(gtx);
+   char *page = is_data ? get_databuf_from_gtx(gtx) : get_indexbuf_from_gtx(gtx);
    void *disk_page = &page[buf_num * PAGE_SIZE];
 
-   // printf("buf_num: %lu\n", buf_num);
+   // if (!is_data)
+   //  printf("buf_num: %lu, file_num: %lu\n", buf_num, file_num);
    memset(_iocb, 0, sizeof(*_iocb));
    // memset(&ctx->events[buffer_idx%64], 0, sizeof(struct io_event));
    _iocb->aio_fildes = get_fd_from_gtx(gtx);
@@ -450,10 +451,10 @@ void gc_ioengine_process_completed_ios(struct io_context *ctx) {
       struct iocb *cb = (void*)ctx->events[i].obj;
       struct slab_callback *callback = (void*)cb->aio_data;
       if (ctx->events[i].res != 4096) {
-        printf("ret: %llu, i/total: %lu/%d\n", ctx->events[i].res, i, ret);
+        printf("ret: %llu, i/total: %lu/%d, offset: %llu\n", ctx->events[i].res, i, ret, cb->aio_offset);
       }
       assert(ctx->events[i].res == 4096); // otherwise page hasn't been read
-      if (callback) // gc를 위한 read는 cb없음
+      if (callback) // gc를 위한 read & index write는 cb없음
         callback->io_cb(callback);
     }
 

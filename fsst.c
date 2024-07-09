@@ -31,6 +31,7 @@ struct gc_context {
    unsigned int gc_ioff;
    unsigned int f_off;
    uint32_t ing;
+   uint32_t index_ing;
    uint32_t level;
    tree_entry_t *victim;
    // uint64_t last_key;
@@ -47,6 +48,10 @@ struct fsst_file *get_file_from_gtx(struct gc_context *gtx) {
 
 char *get_databuf_from_gtx(struct gc_context *gtx) {
   return gtx->data;
+}
+
+char *get_indexbuf_from_gtx(struct gc_context *gtx) {
+  return gtx->f->index_buf;
 }
 
 char *get_victbuf_from_gtx(struct gc_context *gtx) {
@@ -361,6 +366,8 @@ static void gc_finalize(struct gc_context *gtx, struct slab *s) {
    gtx->victim = NULL;
    gtx->f = NULL;
    gtx->d->nb_entries = 0;
+   gtx->index_ing = 0;
+   printf("GC Fin\n");
 }
 
 
@@ -433,6 +440,7 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
   } else {
 
     memcpy(gtx->data + gtx->gc_off, src, item_size);
+    key = get_prefix_for_item(src);
     fi.key = key;
     fi.off = gtx->f_off;
     fi.sz = item_size;
@@ -442,7 +450,6 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
     gtx->f_off += item_size;
     gtx->gc_ioff += sizeof(struct fsst_index);
 
-    key = get_prefix_for_item(src);
 
     if (key < gtx->f->smallest)
       gtx->f->smallest = key;
@@ -462,7 +469,7 @@ void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
 
       write_gc_async(gtx, cb, 
         (gtx->gc_off-1) / PAGE_SIZE,
-        (gtx->f_off-1) / PAGE_SIZE);
+        (gtx->f_off-1) / PAGE_SIZE, 1);
       // write(insert_ptr->fd, new_data_gc, gc_off);
       // gc_off = 0;
     }
@@ -527,6 +534,7 @@ static tree_entry_t *get_victim_centnode(void) {
   }
 
   dequeue_specific_node(q, max_node);
+  max_node->removed = 1;
   return &max_node->value;
 }
 
@@ -538,6 +546,20 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
 
    if (gtx->victim == NULL || gtx->f == NULL)
       return;
+
+   if (gtx->index_ing) {
+      int size_aligned = ((gtx->gc_ioff + PAGE_SIZE - 1) / PAGE_SIZE);
+      
+      while (gtx->index_ing < size_aligned) {
+        write_gc_async(gtx, NULL, gtx->index_ing, 
+             ((gtx->f_off-1) / PAGE_SIZE) + 1 + gtx->index_ing, 0);
+        gtx->index_ing++;
+        if(io_pending(gtx->io_ctx) >= QUEUE_DEPTH)
+          return;
+      }
+      gc_finalize(gtx, gtx->victim->slab);
+      return;
+   }
 
    while (1) {
       index_entry_t e = {NULL, -1};
@@ -556,33 +578,44 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
           cb->item_nums = gtx->gc_off % PAGE_SIZE;
           write_gc_async(gtx, cb,
             (gtx->gc_off-1) / PAGE_SIZE,
-            (gtx->f_off-1) / PAGE_SIZE);
+            (gtx->f_off-1) / PAGE_SIZE, 1);
         }
+
+        int size_aligned = ((gtx->gc_ioff + PAGE_SIZE - 1) / PAGE_SIZE);
 
         gtx->gc_off = 0;
         // bgq_dequeue(GC);
         gtx->f->ioff_start = gtx->f_off;
         gtx->f->file_size = gtx->f_off + gtx->gc_ioff;
-        gtx->f->index_buf = malloc(gtx->gc_ioff);
-        gtx->f->page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+        gtx->f->index_buf = aligned_alloc(PAGE_SIZE, size_aligned * PAGE_SIZE);
+        // gtx->f->page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+        // ftruncate(gtx->f->fd, gtx->f->file_size);
+        printf("File size: %lu\n", gtx->f->file_size);
         memcpy(gtx->f->index_buf, gtx->index, gtx->gc_ioff);
-        gc_finalize(gtx, gtx->victim->slab);
 
         // TODO:JS
-        // write(insert_ptr->fd, new_index_gc, gc_ioff);
+        while (gtx->index_ing < size_aligned) {
+         write_gc_async(gtx, NULL, gtx->index_ing, 
+              ((gtx->f_off-1) / PAGE_SIZE) + 1 + gtx->index_ing, 0);
+         gtx->index_ing++;
+         if(io_pending(gtx->io_ctx) >= QUEUE_DEPTH)
+           return;
+        }
+
+        gc_finalize(gtx, gtx->victim->slab);
         break;
       }
 
       // 메모리가 가득 찾거나 펜딩이 다 찼으면
       if(io_pending(gtx->io_ctx) >= QUEUE_DEPTH || gtx->gc_off >= (64 * PAGE_SIZE)) {
         if (gtx->gc_off % PAGE_SIZE != 0) {
-          struct slab_callback *cb = malloc(sizeof(*cb));
-          cb->slab = e.slab;
-          cb->io_cb = remove_tree_for_gc;
-          cb->item_nums = gtx->gc_off % PAGE_SIZE;
-          write_gc_async(gtx, cb,
-            (gtx->gc_off-1) / PAGE_SIZE,
-            (gtx->f_off-1) / PAGE_SIZE);
+         struct slab_callback *cb = malloc(sizeof(*cb));
+         cb->slab = e.slab;
+         cb->io_cb = remove_tree_for_gc;
+         cb->item_nums = gtx->gc_off % PAGE_SIZE;
+         write_gc_async(gtx, cb,
+           (gtx->gc_off-1) / PAGE_SIZE,
+           (gtx->f_off-1) / PAGE_SIZE, 1);
         }
         gtx->gc_off = 0;
         break;
@@ -694,12 +727,15 @@ static void *gc_async_worker(void *pdata) {
         if (reads*4096 == s->size_on_disk) {
           char path[512];
           struct fsst_file *f;
+          size_t file_size = (gtx->d->nb_entries) * (1024 + 32);
+          file_size =  ((file_size + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
+          printf("Prev File size: %lu\n", file_size);
           gtx->f = f = create_fsst_file(gtx->victim->level);
           f->seq = s->seq;
           // pread(s->fd, gtx->vict_file, s->size_on_disk, 0);
           sprintf(path, FSST_PATH, f->level, f->seq);
           f->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
-          fallocate(f->fd, 0, 0, (gtx->d->nb_entries) * 1024);
+          fallocate(f->fd, 0, 0, file_size) ;
         }
 
       }
@@ -762,25 +798,32 @@ void read_item_async_from_fsst(struct slab_callback *callback) {
     // find file
     f = find_fsst_file(key, llevel);
 
-    if (!f)
+    if (!f) {
+      printf("Can't Lookup due to no key-value %lu\n", key);
       return;
+    }
     //TODO: 일단은 async 매커니즘을 거치지 않고
     //      직접 읽도록 만듬
     // printf("Try find file %lu: (%lu, %lu: %lu-%lu)\n", key, f->level, f->seq, f->smallest, f->largest);
+    printf("test1 %lu\n", key);
     num_indices = (f->file_size - f->ioff_start)
                         / sizeof(struct fsst_index);
     fi = (struct fsst_index*)f->index_buf;
     for (size_t i = 0; i < num_indices; i++) {
+      // printf("fd: %d, What %lu/%lu (%lu, %lu)\n", f->fd, key, fi->key, fi->off, fi->sz);
       if (fi->key == key) {
         uint64_t off = fi->off % PAGE_SIZE;
-        pread(f->fd, f->page, PAGE_SIZE, fi->off - off);
-        memcpy(callback->item, &f->page[off], fi->sz);
+        int ret = pread(f->fd, callback->fsst_buf, PAGE_SIZE, fi->off - off);
+        memcpy(callback->item, &callback->fsst_buf[off], fi->sz);
         uint64_t key2 = get_prefix_for_item(callback->item);
-        // printf("%d, GoT %lu: %lu, %lu:, (%u, %u)\n", f->fd, key, fi->key, key2, fi->off, fi->sz);
+        printf("ret: %d, fd: %d, GoT %lu: %lu, %lu:, (%lu, %lu)\n", ret, f->fd, key, fi->key, key2, fi->off, fi->sz);
+        if (key != key2)
+            die("The key is different with requested one\n");
         return;
       }
       fi++;
     }
+    printf("test2 %lu\n", key);
     llevel = f->level;
   }
 }
