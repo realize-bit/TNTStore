@@ -47,7 +47,6 @@ struct fsst_index {
 };
 
 
-int make_fsst(void);
 tree_entry_t *pick_garbage_node();
 void read_item_async_from_fsst(struct slab_callback *callback);
 void flush_batched_load(void);

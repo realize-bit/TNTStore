@@ -64,6 +64,7 @@ struct slab_context {
    struct io_context *io_ctx;
    uint64_t rdt;                         // Latest timestamp
    char *fsst_buf;
+   char *fsst_index_buf;
 } *slab_contexts;
 
 /* A file is only managed by 1 worker. File => worker function. */
@@ -287,6 +288,7 @@ again:
             if(!e) { // Item is not in DB
                 __sync_add_and_fetch(&try_fsst, 1);
                callback->fsst_buf = ctx->fsst_buf;
+               callback->fsst_index_buf = ctx->fsst_index_buf;
                read_item_async_from_fsst(callback);
                if (!callback->cb) {
                   printf("no index for update\n");
@@ -310,12 +312,14 @@ again:
             break;
          case UPDATE:
             if (!e) {
-               callback->slab = NULL;
-               callback->slab_idx = -1;
-               callback->cb(callback, NULL);
+               // callback->slab = NULL;
+               // callback->slab_idx = -1;
+               // callback->cb(callback, NULL);
                __sync_add_and_fetch(&try_fsst, 1);
+               callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
+               add_item_async(callback);
                // read_item_async_from_fsst(callback);
-               // break;
+               break;
             }
             
             callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
@@ -444,6 +448,7 @@ static void *worker_distributor_init(void *pdata) {
    pin_me_on(ctx->worker_id);
 
    ctx->fsst_buf = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+   ctx->fsst_index_buf = aligned_alloc(PAGE_SIZE, 512*PAGE_SIZE);
    ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
     __sync_add_and_fetch(&nb_workers_ready, 1);
 

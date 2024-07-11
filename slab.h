@@ -67,6 +67,7 @@ struct slab_callback {
    void *payload;
    void *item;
    char *fsst_buf;
+   char *fsst_index_buf;
 
    // Private
    enum slab_action action;

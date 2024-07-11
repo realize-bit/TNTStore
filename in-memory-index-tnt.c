@@ -404,37 +404,88 @@ index_entry_t *tnt_index_lookup(void *item) {
    centree_node n = t->root;
    index_entry_t *e = NULL, *tmp = NULL;
 
+   // Leaf node까지 내려가는 과정
    R_LOCK(&centree_root_lock);
    while (n != NULL) {
-      struct slab *s = n->value.slab;
-      int comp_result;
+      int comp_result = tnt_pointer_cmp((void*)key, n->key);
+      if (comp_result <= 0) {
+         if (n->left == NULL) break;  // Leaf node에 도달
+         n = n->left;
+      } else {
+         assert(comp_result > 0);
+         if (n->right == NULL) break;  // Leaf node에 도달
+         n = n->right;
+      }
+   }
+   R_UNLOCK(&centree_root_lock);
 
+   // Leaf node에서 upward 탐색
+   while (n != NULL) {
+      struct slab *s = n->value.slab;
       R_LOCK(&s->tree_lock);
       if (s->min != -1) {
         if (filter_contain(s->filter, (unsigned char *)&key)) {
          tmp = subtree_worker_lookup_utree(s->tree, item);
-         if (tmp && !TEST_INVAL(tmp->slab_idx)) {
+         if (tmp) {
+            //  && !TEST_INVAL(tmp->slab_idx)
+          //  이 조건을 지웠는데, update의 lock을 최소화하기 위해서
+          //  1. 지운다. 2. 추가한다 이 과정에서 1-2 사이에 있는 중일 수 있음
             e = tmp;
             R_UNLOCK(&s->tree_lock);
             break;
          } 
         }
       }
-      comp_result = tnt_pointer_cmp((void*)key, n->key);
       R_UNLOCK(&s->tree_lock);
 
-      if (comp_result <= 0) {
-         n = n->left;
-      } else {
-         assert(comp_result > 0);
-         n = n->right;
-      }
+      // 부모 노드로 이동
+      n = n->parent;  // parent 필드를 추가하고, 부모 노드로 이동
    }
-   R_UNLOCK(&centree_root_lock);
+
    if (e)
       return e;
    return NULL;
 }
+
+// index_entry_t *tnt_index_lookup(void *item) {
+//    centree t = centree_root;
+//    struct item_metadata *meta = (struct item_metadata *)item;
+//    char *item_key = &item[sizeof(*meta)];
+//    uint64_t key = *(uint64_t*)item_key;
+//    centree_node n = t->root;
+//    index_entry_t *e = NULL, *tmp = NULL;
+//
+//    R_LOCK(&centree_root_lock);
+//    while (n != NULL) {
+//       struct slab *s = n->value.slab;
+//       int comp_result;
+//
+//       R_LOCK(&s->tree_lock);
+//       if (s->min != -1) {
+//         if (filter_contain(s->filter, (unsigned char *)&key)) {
+//          tmp = subtree_worker_lookup_utree(s->tree, item);
+//          if (tmp && !TEST_INVAL(tmp->slab_idx)) {
+//             e = tmp;
+//             R_UNLOCK(&s->tree_lock);
+//             break;
+//          } 
+//         }
+//       }
+//       comp_result = tnt_pointer_cmp((void*)key, n->key);
+//       R_UNLOCK(&s->tree_lock);
+//
+//       if (comp_result <= 0) {
+//          n = n->left;
+//       } else {
+//          assert(comp_result > 0);
+//          n = n->right;
+//       }
+//    }
+//    R_UNLOCK(&centree_root_lock);
+//    if (e)
+//       return e;
+//    return NULL;
+// }
 
 tree_scan_res_t tnt_scan(void *item, uint64_t size) {
    struct index_scan scan_res;

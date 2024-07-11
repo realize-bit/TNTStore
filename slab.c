@@ -271,7 +271,7 @@ void update_item_async_cb2(struct slab_callback *callback) {
    char *item_key2 = &item[sizeof(*meta2)];
    uint64_t key2 = *(uint64_t*)item_key2;
    if (key != key2)
-    printf("DIFF key1: %lu, key2: %lu, key/idx: %lu/%lu\n", key, key2, callback->slab->seq, callback->slab_idx);
+    die("DIFF key1: %lu, key2: %lu, key/idx: %lu/%lu\n", key, key2, callback->slab->seq, callback->slab_idx);
 
    if(callback->cb)
       callback->cb(callback, &disk_page[in_page_offset]);
@@ -353,6 +353,15 @@ void add_item_async_cb1(struct slab_callback *callback) {
 }
 
 void add_item_async(struct slab_callback *callback) {
+   if (callback->cb != add_in_tree) {
+     if (callback->cb == NULL) {
+       printf("testestest WHAT?\n");
+       callback->cb = add_in_tree;
+     } else {
+       callback->cb_cb = callback->cb; //computes_stat
+       callback->cb = add_in_tree;
+     }
+   }
    callback->io_cb = add_item_async_cb1;
    callback->lru_entry = NULL;
    callback->io_cb(callback);
@@ -360,32 +369,30 @@ void add_item_async(struct slab_callback *callback) {
 
 void add_in_tree_for_update(struct slab_callback *cb, void *item) {
    struct slab *s = cb->slab;
+   struct slab *old_s = cb->fsst_slab;
    unsigned char enqueue = 0;
    struct item_metadata *meta = (struct item_metadata *)item;
    char *item_key = &item[sizeof(*meta)];
    uint64_t key = *(uint64_t*)item_key;
-   int alrdy = 0;
+   int removed = 0, alrdy = 0;
+   
+   R_LOCK(&old_s->tree_lock);
+   if (old_s->min != -1)
+     removed = tnt_index_invalid_utree(old_s->tree, cb->item);
+   R_UNLOCK(&old_s->tree_lock);
 
-   // tnt_index_invalid(cb->item);
-   // W_LOCK(&cb->fsst_slab->tree_lock);
-   // if(btree_worker_invalid_utree(cb->fsst_slab->tree, item)) {
-      // cb->fsst_slab->nb_items--;
-   // }
-   // W_UNLOCK(&cb->fsst_slab->tree_lock);
-   if(tnt_index_invalid(cb->item) == 0) {
-     if (cb->fsst_slab)
-      printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
-     else 
-      printf("UPDATE NULL %lu seq/idx %lu/%lu fsst NULL\n", key, cb->slab->seq, cb->slab_idx);
-    }
-   // else
-     // printf("UPDATE COMP\n");
+   if(!removed) {
+     // 동시에 수정하는 누군가가 자기가 지워야 하는 것을 이미 지운 것.
+     //  그 친구가 새로 추가한 것을 지워야함
+     removed = tnt_index_invalid(cb->item);
+     if (!removed)
+       printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+   } else {
+     __sync_fetch_and_sub(&old_s->nb_items, 1);
+   }
 
    W_LOCK(&s->tree_lock);
    alrdy = tnt_index_delete(cb->slab->tree, item);
-   // W_LOCK(&s->tree_lock);
-   // printf("ADD %lu -> (%lu, %lu)\n", key, s->key, cb->slab_idx);
-   // W_LOCK(&s->tree_lock);
    tnt_index_add(cb, item);
 
    if(!alrdy) {
@@ -398,28 +405,13 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     }
    } 
 
-  //else {
-    // 1. imm!=0인 곳에 데이터가 있어서, 거기를 업데이트 하는 상황
-    // 2. imm!=1인 곳에 데이터가 있는데, 두 리퀘스트가 동시에 업데이트 하려는 상황
-    // 1은 idx=-1이므로 여기에 도달하지 않는다.
-    // 2는 여기에 도달함
-    // 2의 상황이 좀 애매한데, 두 리퀘스트를 A, B라고 할 때,
-    //    (1) A완벽 수행 B 수행
-    //    (2) A수행 도중 B 수행이면?
-    // (1)과 (2)모두 여기 도달 가능함. 왜냐면 tnt_index_invalid는 인덱스 삭제가 아닌
-    // invalid 표시이기 때문에, (1)도 memory_index_delete_utree에서 삭제됨
-    // 지금까지 포착하기로는 다 (1)임. 그런데 (2)의 케이스라면 nb_items가 줄어들지 않는 문제가
-    // 발생 가능해서 이걸 수정이 필요하다. 발생하긴 하겠지? TODO::JS
-  //}
    s->update_ref--;
-   if (key < s->min) {
-      // printf("Min: %lu -> %lu\n", s->min, key);
+
+   if (key < s->min)
       s->min = key;
-   }
-   if (key > s->max) {
-      // printf("Max: %lu -> %lu\n", s->max, key);
+   if (key > s->max)
       s->max = key;
-   }
+   
    if ((s->max - s->min) > (s->nb_max_items * 10)
        && s->full && !s->update_ref 
        && !((centree_node)s->tree_node)->removed) {
@@ -427,10 +419,8 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       ((centree_node)s->tree_node)->removed = 1;
    }
 
-   // if (s->last_item == s->nb_max_items)
-      // s->imm = 1;
-  //
    W_UNLOCK(&s->tree_lock);
+
    if (enqueue)
       bgq_enqueue(FSST, s->tree_node);
 

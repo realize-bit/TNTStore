@@ -75,9 +75,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
    if (enqueue)
       bgq_enqueue(FSST, s->tree_node);
 
-
-
-   if (!cb->cb_cb || cb->cb_cb == add_in_tree) {
+   if (!cb->cb_cb) {
     free(cb->item);
     free(cb);
    }
