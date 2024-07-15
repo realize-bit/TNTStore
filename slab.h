@@ -50,6 +50,7 @@ struct slab {
    int fd;
    size_t size_on_disk;
    uint64_t update_ref;
+   uint64_t read_ref;
 
    //unsigned char batch_idx;
    //unsigned char nb_batched;

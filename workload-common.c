@@ -56,11 +56,13 @@ void add_in_tree(struct slab_callback *cb, void *item) {
         printf("FIFIFIFIF\n");
    }
 
-   s->update_ref--;
    if (key < s->min)
       s->min = key;
    if (key > s->max)
       s->max = key;
+
+   s->update_ref--;
+
    if ((s->max - s->min) > (s->nb_max_items * 10)
        && s->full && !s->update_ref
        && !((centree_node)s->tree_node)->removed) {
@@ -69,7 +71,22 @@ void add_in_tree(struct slab_callback *cb, void *item) {
    }
    // if (s->last_item == s->nb_max_items)
       // s->imm = 1;
+
+   //희박하지만 초기에 get_slab으로 꽉 차자마자 GC 대상이 되었을 수 있다
+   if (s->min == -1 && s->update_ref == 0) {
+    char path[128], spath[128];
+    int len;
+    sprintf(path, "/proc/self/fd/%d", s->fd);
+    if((len = readlink(path, spath, 512)) < 0)
+      die("READLINK\n");
+    spath[len] = 0;
+    close(s->fd);
+    unlink(spath);
+    printf("REMOVED FILE\n");
+   }
+
    W_UNLOCK(&s->tree_lock);
+
   __sync_fetch_and_add(&nb_totals, 1);
 
    if (enqueue)

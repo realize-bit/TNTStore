@@ -565,6 +565,7 @@ int tnt_index_invalid(void *item) {
          if(subtree_worker_invalid_utree(s->tree, item)) {
             __sync_fetch_and_sub(&s->nb_items, 1);
             count++;
+            return 1;
          }
       }
       comp_result = tnt_pointer_cmp((void*)key, n->key);

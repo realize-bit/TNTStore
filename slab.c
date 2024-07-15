@@ -148,6 +148,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, uint64_t 
    s->seq = cur_seq;
    s->full = 0;
    s->update_ref = 0;
+   s->read_ref = 0;
    s->hot_pages = 0;
 
 
@@ -236,6 +237,25 @@ void *read_item(struct slab *s, size_t idx) {
 void read_item_async_cb(struct slab_callback *callback) {
    char *disk_page = callback->lru_entry->page;
    off_t in_page_offset = item_in_page_offset(callback->slab, callback->slab_idx);
+   struct slab *s = callback->slab;
+   uint64_t prev;
+
+   prev = __sync_fetch_and_sub(&s->read_ref, 1);
+
+   R_LOCK(&s->tree_lock);
+   if (s->min == -1 && prev == 1) {
+    char path[128], spath[128];
+    int len;
+    sprintf(path, "/proc/self/fd/%d", s->fd);
+    if((len = readlink(path, spath, 512)) < 0)
+      die("READLINK\n");
+    spath[len] = 0;
+    close(s->fd);
+    unlink(spath);
+    printf("REMOVED FILE\n");
+   }
+   R_UNLOCK(&s->tree_lock);
+
    if(callback->cb) 
       callback->cb(callback, &disk_page[in_page_offset]);
 }
@@ -405,13 +425,13 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     }
    } 
 
-   s->update_ref--;
-
    if (key < s->min)
       s->min = key;
    if (key > s->max)
       s->max = key;
    
+   s->update_ref--;
+
    if ((s->max - s->min) > (s->nb_max_items * 10)
        && s->full && !s->update_ref 
        && !((centree_node)s->tree_node)->removed) {
@@ -419,10 +439,23 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       ((centree_node)s->tree_node)->removed = 1;
    }
 
+   if (s->min == -1 && s->update_ref == 0) {
+    char path[128], spath[128];
+    int len;
+    sprintf(path, "/proc/self/fd/%d", s->fd);
+    if((len = readlink(path, spath, 512)) < 0)
+      die("READLINK\n");
+    spath[len] = 0;
+    close(s->fd);
+    unlink(spath);
+    printf("REMOVED FILE\n");
+   }
+
    W_UNLOCK(&s->tree_lock);
 
    if (enqueue)
       bgq_enqueue(FSST, s->tree_node);
+
 
    if (cb->cb_cb == add_in_tree_for_update) {
     free(cb->item);

@@ -162,8 +162,6 @@ static void insert_fsst_file(struct fsst_file *f) {
 
 void check_and_remove_tree (struct slab_callback *cb, void *item) {
   struct slab *s = cb->fsst_slab;
-  char path[128], spath[128];
-  int len;
   free(cb->item);
   free(cb);
 
@@ -183,15 +181,22 @@ void check_and_remove_tree (struct slab_callback *cb, void *item) {
   inc_empty_tree();
   s->tree = NULL;
   s->tree_node = NULL;
-  W_UNLOCK(&s->tree_lock);
 
-  sprintf(path, "/proc/self/fd/%d", s->fd);
-  if((len = readlink(path, spath, 128)) < 0)
-    die("READLINK\n");
-  spath[len] = 0;
-  printf("RM %s\n", spath);
-  // close(s->fd);
-  // unlink(spath);
+  printf("RM %lu\n", s->seq);
+
+  if (s->update_ref == 0 && s->read_ref == 0) {
+    char path[128], spath[128];
+    int len;
+    sprintf(path, "/proc/self/fd/%d", s->fd);
+    if((len = readlink(path, spath, 512)) < 0)
+      die("READLINK\n");
+    spath[len] = 0;
+    close(s->fd);
+    unlink(spath);
+    printf("REMOVED FILE\n");
+  }
+
+  W_UNLOCK(&s->tree_lock);
 }
 
 void skip_or_invalidate_index_fsst(void *e) {
@@ -287,8 +292,6 @@ static void gc_finalize(struct gc_context *gtx, struct slab *s) {
 void remove_tree_for_gc(struct slab_callback *cb) {
    struct slab *s = cb->slab;
    uint64_t item_nums = cb->item_nums;
-   char path[128], spath[128];
-   int len;
    free(cb);
 
    W_LOCK(&s->tree_lock);
@@ -308,15 +311,21 @@ void remove_tree_for_gc(struct slab_callback *cb) {
    inc_empty_tree();
    s->tree = NULL;
    s->tree_node = NULL;
-   W_UNLOCK(&s->tree_lock);
 
-   sprintf(path, "/proc/self/fd/%d", s->fd);
-   if((len = readlink(path, spath, 512)) < 0)
-     die("READLINK\n");
-   spath[len] = 0;
-   printf("END GC %s\n", spath);
-   // close(s->fd);
-   // unlink(spath);
+   printf("END GC %lu\n", s->seq);
+  if (s->update_ref == 0 && s->read_ref == 0) {
+    char path[128], spath[128];
+    int len;
+    sprintf(path, "/proc/self/fd/%d", s->fd);
+    if((len = readlink(path, spath, 512)) < 0)
+      die("READLINK\n");
+    spath[len] = 0;
+    close(s->fd);
+    unlink(spath);
+    printf("REMOVED FILE\n");
+  }
+
+  W_UNLOCK(&s->tree_lock);
 }
 
 void gc_async_invalidate_index(struct gc_context *gtx, index_entry_t *e) {
@@ -737,7 +746,7 @@ void read_item_async_from_fsst(struct slab_callback *callback) {
     for (size_t i = 0; i < num_indices; i++) {
       // printf("fd: %d, What %lu/%lu (%lu, %lu)\n", f->fd, key, fi->key, fi->off, fi->sz);
       if (fi->key == key) {
-        printf("MISS file: %lu, worker: %d\n", f->seq, get_worker_ucb(callback));
+        // printf("MISS file: %lu, worker: %d\n", f->seq, get_worker_ucb(callback));
         uint64_t off = fi->off % PAGE_SIZE;
         int ret = pread(f->fd, callback->fsst_buf, PAGE_SIZE, fi->off - off);
         memcpy(callback->item, &callback->fsst_buf[off], fi->sz);
