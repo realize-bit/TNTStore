@@ -33,36 +33,35 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 #include "memory-item.h"
 
 typedef struct centree_node_t {
-    void* key;
-    tree_entry_t value;
-    struct centree_node_t* left;
-    struct centree_node_t* right;
-    struct centree_node_t* parent;
-    struct centree_node_t* prev;
-    struct centree_node_t* next;
-    unsigned char removed;
-    // unsigned char gc;
-} *centree_node;
+  void* key;
+  tree_entry_t value;
+  struct centree_node_t* left;
+  struct centree_node_t* right;
+  struct centree_node_t* parent;
+  struct centree_node_t* prev;
+  struct centree_node_t* next;
+  unsigned char removed;
+  // unsigned char gc;
+} * centree_node;
 
 typedef struct centree_t {
-    centree_node root;
-    centree_node last_visited_node;
-    int nb_elements;
-    int empty_elements;
-    int start_level;
-} *centree;
+  centree_node root;
+  centree_node last_visited_node;
+  int nb_elements;
+  int empty_elements;
+  int start_level;
+} * centree;
 
 typedef struct bgq_node_t {
-    struct centree_node_t *data;
-    struct bgq_node_t *next;
+  struct centree_node_t* data;
+  struct bgq_node_t* next;
 } bgq_node;
 
 typedef struct background_queue_t {
-    struct bgq_node_t *front;
-    struct bgq_node_t *rear;
-    int count; // 큐 안의 노드 개수  
+  struct bgq_node_t* front;
+  struct bgq_node_t* rear;
+  int count;  // 큐 안의 노드 개수
 } background_queue;
-
 
 typedef int (*compare_func)(void* left, void* right);
 int tnt_pointer_cmp(void* left, void* right);
@@ -70,21 +69,21 @@ int tnt_pointer_cmp(void* left, void* right);
 centree centree_create();
 tree_entry_t* centree_lookup(centree t, void* key, compare_func compare);
 tree_entry_t* centree_traverse_useq(centree t, int seq);
-centree_node centree_insert(centree t, void* key, tree_entry_t* value, compare_func compare);
+centree_node centree_insert(centree t, void* key, tree_entry_t* value,
+                            compare_func compare);
 // TODO do we need?
 // void centree_delete(centree t, void* key, compare_func compare);
 
 void centree_print(centree t);
 
-void init_queue(background_queue *queue);
-int is_empty(background_queue *queue);
-void enqueue_centnode(background_queue *queue, centree_node n);
-centree_node dequeue_centnode(background_queue *queue);
-
+void init_queue(background_queue* queue);
+int is_empty(background_queue* queue);
+void enqueue_centnode(background_queue* queue, centree_node n);
+centree_node dequeue_centnode(background_queue* queue);
 
 struct centree_scan_tmp {
-   struct centree_node_t *entries;
-   size_t nb_entries;
+  struct centree_node_t* entries;
+  size_t nb_entries;
 };
 
 #endif

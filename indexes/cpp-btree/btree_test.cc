@@ -21,39 +21,44 @@ using namespace btree;
 
 #define NB_INSERTS 10000000LU
 
-static unsigned long x=123456789, y=362436069, z=521288629;
-unsigned long xorshf96(void) {          //period 2^96-1
-   unsigned long t;
-   x ^= x << 16;
-   x ^= x >> 5;
-   x ^= x << 1;
+static unsigned long x = 123456789, y = 362436069, z = 521288629;
+unsigned long xorshf96(void) {  // period 2^96-1
+  unsigned long t;
+  x ^= x << 16;
+  x ^= x >> 5;
+  x ^= x << 1;
 
-   t = x;
-   x = y;
-   y = z;
-   z = t ^ x ^ y;
+  t = x;
+  x = y;
+  y = z;
+  z = t ^ x ^ y;
 
-   return z;
+  return z;
 }
 
-int main(int argc, char**argv) {
-   declare_timer;
-   btree_map<uint64_t, struct rbtree_entry> *b = new btree_map<uint64_t, struct rbtree_entry>();
+int main(int argc, char **argv) {
+  declare_timer;
+  btree_map<uint64_t, struct rbtree_entry> *b =
+      new btree_map<uint64_t, struct rbtree_entry>();
 
-   start_timer {
-      for(size_t i = 0; i < NB_INSERTS; i++) {
-         uint64_t hash = xorshf96()%NB_INSERTS;
-         struct rbtree_entry e;
-         b->insert(make_pair(hash, e));
-      }
-   } stop_timer("BTREE - Time for %lu inserts/replace (%lu inserts/s)", NB_INSERTS, NB_INSERTS*1000000LU/elapsed);
+  start_timer {
+    for (size_t i = 0; i < NB_INSERTS; i++) {
+      uint64_t hash = xorshf96() % NB_INSERTS;
+      struct rbtree_entry e;
+      b->insert(make_pair(hash, e));
+    }
+  }
+  stop_timer("BTREE - Time for %lu inserts/replace (%lu inserts/s)", NB_INSERTS,
+             NB_INSERTS * 1000000LU / elapsed);
 
-   start_timer {
-      for(size_t i = 0; i < NB_INSERTS; i++) {
-         uint64_t hash = xorshf96()%NB_INSERTS;
-         b->find(hash);
-      }
-   } stop_timer("BTREE - Time for %lu finds (%lu finds/s)", NB_INSERTS, NB_INSERTS*1000000LU/elapsed);
+  start_timer {
+    for (size_t i = 0; i < NB_INSERTS; i++) {
+      uint64_t hash = xorshf96() % NB_INSERTS;
+      b->find(hash);
+    }
+  }
+  stop_timer("BTREE - Time for %lu finds (%lu finds/s)", NB_INSERTS,
+             NB_INSERTS * 1000000LU / elapsed);
 
-   return 0;
+  return 0;
 }

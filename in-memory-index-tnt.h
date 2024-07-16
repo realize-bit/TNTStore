@@ -15,7 +15,6 @@ struct index_entry *btree_worker_lookup(int worker_id, void *item);
 void btree_worker_delete(int worker_id, void *item);
 void btree_index_add(struct slab_callback *cb, void *item);
 
-
 enum fsst_mode { GC, FSST };
 
 int subtree_worker_invalid_utree(subtree_t *tree, void *item);
@@ -26,15 +25,16 @@ int subtree_worker_delete(subtree_t *tree, void *item);
 void centree_init(void);
 struct tree_entry *tnt_worker_lookup(int worker_id, void *item);
 
-subtree_t* tnt_subtree_create(void);
-void tnt_subtree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key);
+subtree_t *tnt_subtree_create(void);
+void tnt_subtree_add(struct slab *s, void *tree, void *filter,
+                     uint64_t tmp_key);
 void tnt_subtree_delete(int worker_id, void *item);
 void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key);
 
-tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t * old_e);
+tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e);
 tree_entry_t *tnt_traverse_use_seq(int seq);
 
-int tnt_get_nodes_at_level(int level, background_queue* q);
+int tnt_get_nodes_at_level(int level, background_queue *q);
 
 void tnt_index_add(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup(void *item);
@@ -51,9 +51,10 @@ tree_entry_t *bgq_dequeue(enum fsst_mode m);
 tree_entry_t *bgq_front(enum fsst_mode m);
 centree_node bgq_front_node(enum fsst_mode m);
 
-centree_node dequeue_specific_node(background_queue* queue, centree_node target);
-tree_entry_t *get_next_node_entry(background_queue* queue, centree_node target);
-centree_node get_next_node(background_queue* queue, centree_node target);
+centree_node dequeue_specific_node(background_queue *queue,
+                                   centree_node target);
+tree_entry_t *get_next_node_entry(background_queue *queue, centree_node target);
+centree_node get_next_node(background_queue *queue, centree_node target);
 
 #include "indexes/filter.h"
 //#define memory_index_init btree_init
@@ -62,6 +63,4 @@ centree_node get_next_node(background_queue* queue, centree_node target);
 //#define memory_index_lookup btree_worker_lookup
 //#define memory_index_delete_utree btree_worker_delete_utree
 
-
 #endif
-

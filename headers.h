@@ -26,7 +26,6 @@
 #include "utils.h"
 #include "items.h"
 
-
 #include "pagecache.h"
 #include "in-memory-index-generic.h"
 #include "fsst.h"
