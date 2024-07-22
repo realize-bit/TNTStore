@@ -237,21 +237,29 @@ void read_item_async_cb(struct slab_callback *callback) {
   off_t in_page_offset =
       item_in_page_offset(callback->slab, callback->slab_idx);
   struct slab *s = callback->slab;
-  uint64_t prev;
+  uint64_t cur;
 
-  prev = __sync_fetch_and_sub(&s->read_ref, 1);
+  cur = __sync_sub_and_fetch(&s->read_ref, 1);
 
   R_LOCK(&s->tree_lock);
-  if (s->min == -1 && prev == 1) {
+  if (s->min == -1 && cur == 0 && s->update_ref == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);
-    if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
+    if ((len = readlink(path, spath, 512)) < 0) {
+	    // 아마 sub 하고 R_LOCK 기다리는 동안
+	    // check and remove 쪽에서 W_LOCK 잡고
+	    // read_ref == 0 테스트 통과해서
+	    // 지우는 듯
+	    printf("already removed\n");
+	    goto skip;
+    }
     spath[len] = 0;
     close(s->fd);
     unlink(spath);
-    printf("REMOVED FILE\n");
+    // printf("REMOVED FILE\n");
   }
+skip:
   R_UNLOCK(&s->tree_lock);
 
   if (callback->cb) callback->cb(callback, &disk_page[in_page_offset]);
@@ -394,6 +402,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   int removed = 0, alrdy = 0;
+  uint64_t cur;
 
   R_LOCK(&old_s->tree_lock);
   if (old_s->min != -1)
@@ -438,7 +447,9 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     ((centree_node)s->tree_node)->removed = 1;
   }
 
-  if (s->min == -1 && s->update_ref == 0) {
+  cur = __sync_fetch_and_add(&s->read_ref, 0);
+
+  if (s->min == -1 && s->update_ref == 0 && cur == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);
@@ -446,7 +457,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     spath[len] = 0;
     close(s->fd);
     unlink(spath);
-    printf("REMOVED FILE\n");
+    //printf("REMOVED FILE\n");
   }
 
   W_UNLOCK(&s->tree_lock);

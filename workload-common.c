@@ -47,6 +47,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
+  uint64_t cur;
 
   W_LOCK(&s->tree_lock);
   tnt_index_add(cb, item);
@@ -70,8 +71,9 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   // if (s->last_item == s->nb_max_items)
   // s->imm = 1;
 
+  cur = __sync_fetch_and_add(&s->read_ref, 0);
   //희박하지만 초기에 get_slab으로 꽉 차자마자 GC 대상이 되었을 수 있다
-  if (s->min == -1 && s->update_ref == 0) {
+  if (s->min == -1 && s->update_ref == 0 && cur == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);
@@ -79,7 +81,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
     spath[len] = 0;
     close(s->fd);
     unlink(spath);
-    printf("REMOVED FILE\n");
+    //printf("REMOVED FILE\n");
   }
 
   W_UNLOCK(&s->tree_lock);

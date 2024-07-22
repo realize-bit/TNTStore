@@ -273,7 +273,7 @@ static void gc_finalize(struct gc_context *gtx, struct slab *s) {
   gtx->f = NULL;
   gtx->d->nb_entries = 0;
   gtx->index_ing = 0;
-  printf("GC Fin\n");
+  // printf("GC Fin\n");
 }
 
 void remove_tree_for_gc(struct slab_callback *cb) {
@@ -308,7 +308,7 @@ void remove_tree_for_gc(struct slab_callback *cb) {
     spath[len] = 0;
     close(s->fd);
     unlink(spath);
-    printf("REMOVED FILE\n");
+    // printf("REMOVED FILE\n");
   }
 
   W_UNLOCK(&s->tree_lock);
@@ -489,7 +489,7 @@ static void gc_dequeue_requests(struct gc_context *gtx) {
       // ftruncate(gtx->f->fd, gtx->f->file_size);
 
       int ret = pwrite(gtx->f->fd, gtx->index, PAGE_SIZE * 512, gtx->f_off);
-      printf("File size: %lu, index write ret: %d\n", gtx->f->file_size, ret);
+      // printf("File size: %lu, index write ret: %d\n", gtx->f->file_size, ret);
       if (ret == -1) {
         perror("");
       }
@@ -570,6 +570,7 @@ static void *gc_async_worker(void *pdata) {
     // 현재 gc_end_trshld 보다 작으면 잠든다
     // printf("GC// nb_totlas: %lu, gc_end_trshld: %lu\n", nb_totals,
     // gc_end_trshld);
+    printf("nb_totals: %lu, gc_end_threhold: %lu\n", nb_totals, gc_end_trshld);
     while (nb_totals < gc_end_trshld) {
       pthread_mutex_lock(&gc_mutex);
       pthread_cond_wait(&gc_cond, &gc_mutex);
