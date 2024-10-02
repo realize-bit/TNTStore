@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
                         // ycsb_a_uniform,
                         // ycsb_c_uniform,
                         // ycsb_a_zipfian,
-                        ycsb_c_zipfian,
+                        ycsb_a_zipfian,
                         // dbbench_prefix_dist,
                     };
 

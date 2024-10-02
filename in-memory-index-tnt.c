@@ -561,6 +561,8 @@ int tnt_index_invalid(void *item) {
       if (subtree_worker_invalid_utree(s->subtree, item)) {
         __sync_fetch_and_sub(&s->nb_items, 1);
         count++;
+        R_UNLOCK(&s->tree_lock);
+        R_UNLOCK(&centree_root_lock);
         return 1;
       }
     }

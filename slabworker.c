@@ -485,29 +485,40 @@ static void *worker_distributor_init(void *pdata) {
  * When first loading a slab from disk we need to rebuild the in memory tree,
  * these functions do that.
  */
-int add_existing_item(struct slab *s, size_t idx, void *_item,
+int add_existing_item(struct slab *s, size_t idx, void *item,
                        struct slab_callback *cb) {
-  struct item_metadata *item = _item;
-  char *item_key = &_item[sizeof(*item)];
+  struct item_metadata *meta = item;
+  char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
+  int already = 0;
 
-  if (item->key_size == 0)
+  if (meta->key_size == 0)
     return 0;
 
-  item->rdt = 0;
+  if ((already = filter_contain(s->filter, (unsigned char *)&key))
+    && tnt_index_lookup_utree(s->subtree, item)) {
+    tnt_index_invalid_utree(s->subtree, item);
+    s->nb_items--;
+  }
+
+  meta->rdt = 0;
   s->nb_items++;
   s->last_item++;
-  /*if (idx > s->last_item) s->last_item = idx;*/
   cb->slab_idx = idx;
+  /*if (idx > s->last_item) s->last_item = idx;*/
 
   tnt_index_add(cb, item);
 
-  if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
+  if (!already && filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
              s->filter, key, cb->slab->seq, cb->slab_idx,
-             item->key_size, item->value_size);
+             meta->key_size, meta->value_size);
       return 0;
+
+  } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
+    printf("Error about filter in Rebuilding\n");
   }
+
   return 1;
 }
 
@@ -576,6 +587,16 @@ static pthread_lock_t rebuild_lock;
 static int rebuild_totals = 0;
 static int rebuild_ready = 0;
 
+static int numeric_sort(const struct dirent **a, const struct dirent **b) {
+    int num_a = 0, num_b = 0;
+    
+    // "slab-" 이후의 숫자 부분 추출
+    sscanf((*a)->d_name, "slab-%d", &num_a);
+    sscanf((*b)->d_name, "slab-%d", &num_b);
+    
+    return (num_a - num_b);
+}
+
 static void *worker_rebuild_init(void *pdata) {
   struct slab_context *ctx = pdata;
   char *cached_data;
@@ -584,7 +605,7 @@ static void *worker_rebuild_init(void *pdata) {
     char *path = "/scratch0/kvell";
     if ((dir = opendir(path)) != NULL) {
       // Sort the entries by name
-      rebuild_totals = scandir(path, &rebuild_list, NULL, alphasort);
+      rebuild_totals = scandir(path, &rebuild_list, NULL, numeric_sort);
       if (rebuild_totals < 0) {
         perror("scandir");
       } else {
@@ -594,9 +615,8 @@ static void *worker_rebuild_init(void *pdata) {
     } else {
       perror("Could not open directory");
     }
-    __sync_add_and_fetch(&rebuild_ready, 1);
     INIT_LOCK(&rebuild_lock, NULL);
-    rebuild_ready = 1;
+    __sync_add_and_fetch(&rebuild_ready, 1);
   } else {
     while (__sync_fetch_and_or(&rebuild_ready, 0) == 0) {
       NOP10();
@@ -608,15 +628,15 @@ static void *worker_rebuild_init(void *pdata) {
   while (1) {
     char *filename = NULL;
     int keynum;
-    uint64_t level, key, old_key;
+    uint64_t level, key, old_key, seq;
     struct slab *s;
     // rebuild lock 잡고 rebuild_list에서 엔트리 하나 가져온다. 
     W_LOCK(&rebuild_lock);
     for (int i = 0; i < rebuild_totals; i++) {
       if (rebuild_list[i] != NULL) {
         filename = rebuild_list[i]->d_name;
-        keynum = sscanf(filename, "slab-%lu-%lu-%lu", &level, &key, &old_key);
-        if (keynum == 3)
+        keynum = sscanf(filename, "slab-%lu-%lu-%lu-%lu", &seq, &level, &key, &old_key);
+        if (keynum == 4)
           key = old_key;
         /*printf("FNUM: %d, level: %lu, key: %lu, keynum: %d\n", i, level, old_key, keynum);*/
         rebuild_list[i] = NULL;

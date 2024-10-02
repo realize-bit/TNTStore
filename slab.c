@@ -126,10 +126,11 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
     flag = flag | O_CREAT;
 
   //size_t disk = slab_worker_id / (get_nb_workers() / get_nb_disks());
+  cur_seq = __sync_add_and_fetch(&create_sequence, 1);
   if (rebuild)
     sprintf(path, "/scratch0/kvell/%s", name);
   else
-    sprintf(path, PATH, 0LU, level, key);
+    sprintf(path, PATH, 0LU, cur_seq, level, key);
 
   s->fd = open(path, flag, 0777);
 
@@ -145,7 +146,6 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   }
 
 
-  cur_seq = __sync_add_and_fetch(&create_sequence, 1);
   size_t nb_items_per_page = PAGE_SIZE / 1024;
   s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
   // TODO::JS::구조체 수정
@@ -200,17 +200,17 @@ int rebuild_slabs(int filenum, struct dirent **file_list) {
   for (int i = 0; i < filenum; i++) {
     if (file_list[i]->d_type == DT_REG) {  // If it's a regular file
       char *filename = file_list[i]->d_name;
-      uint64_t level, key, old_key;
+      uint64_t level, key, old_key, seq;
       int keynum;
-      if ((keynum = sscanf(filename, "slab-%lu-%lu-%lu", &level, &old_key, &key)) >= 2) {
+      if ((keynum = sscanf(filename, "slab-%lu-%lu-%lu-%lu", &seq, &level, &old_key, &key)) >= 2) {
         struct slab *s;
-        printf("FN: %d, level: %lu, key: %lu\n", i, level, old_key);
+        printf("FN: %d, seq: %lu level: %lu, key: %lu\n", i,seq, level, old_key);
         s = create_slab(NULL, level, old_key, 1, filename);
         // Process the slab file
         //process_slab_file(level, key);
         tnt_subtree_add(s, tnt_subtree_create(), 
                   (void *)filter_create(200000), old_key);
-        if (keynum == 3) {
+        if (keynum == 4) {
           tnt_subtree_update_key(s->key, key);
           s->key = key;
         }
@@ -228,7 +228,7 @@ int rebuild_slabs(int filenum, struct dirent **file_list) {
 
 static int root_exists() {
     const char *dir_path = "/scratch0/kvell";
-    const char *prefix = "slab-0-";
+    const char *prefix = "slab-1-0-";
     
     DIR *dir = opendir(dir_path);
     if (dir == NULL) {
