@@ -5,6 +5,7 @@
 #include "ioengine.h"
 #include "pagecache.h"
 #include "slabworker.h"
+#include <errno.h>
 
 extern int print;
 extern int load;
@@ -112,25 +113,37 @@ start, end-start, callback); start = end;
  * @callback is a callback that will be called on all previously existing items
  * of the slab if it is restored from disk.
  */
-struct slab *create_slab(struct slab_context *ctx, int slab_worker_id,
-                         uint64_t key) {
+struct slab *create_slab(struct slab_context *ctx, uint64_t level,
+                         uint64_t key, int rebuild, char *name) {
   struct stat sb;
   char path[512];
   struct slab *s = calloc(1, sizeof(*s));
   int cur_seq = -1;
+  int flag = O_RDWR | O_DIRECT;
 
-  size_t disk = slab_worker_id / (get_nb_workers() / get_nb_disks());
-  sprintf(path, PATH, disk, slab_worker_id, 0LU, key);
-  s->fd = open(path, O_RDWR | O_CREAT | O_DIRECT, 0777);
-  if (s->fd == -1) perr("Cannot allocate slab %s", path);
+  // not rebuild
+  if (!rebuild)
+    flag = flag | O_CREAT;
+
+  //size_t disk = slab_worker_id / (get_nb_workers() / get_nb_disks());
+  if (rebuild)
+    sprintf(path, "/scratch0/kvell/%s", name);
+  else
+    sprintf(path, PATH, 0LU, level, key);
+
+  s->fd = open(path, flag, 0777);
+
+  if (s->fd == -1) {
+      perr("Cannot allocate slab %s", path);
+  } 
 
   fstat(s->fd, &sb);
   s->size_on_disk = sb.st_size;
-
-  if (s->size_on_disk < 16384 * PAGE_SIZE) {
+  if (!rebuild && s->size_on_disk < 16384 * PAGE_SIZE) {
     fallocate(s->fd, 0, 0, 16384 * PAGE_SIZE);
     s->size_on_disk = 16384 * PAGE_SIZE;
   }
+
 
   cur_seq = __sync_add_and_fetch(&create_sequence, 1);
   size_t nb_items_per_page = PAGE_SIZE / 1024;
@@ -178,25 +191,86 @@ struct slab *resize_slab(struct slab *s) {
 }
 
 static int show_rbtree(void *key, void *value) {
-  printf("key: %lu\n", key);
+  printf("key: %lu\n", (uint64_t)key);
   return 0;
 }
 
-void create_root_slab() {
+int rebuild_slabs(int filenum, struct dirent **file_list) {
+  int ret = 0;
+  for (int i = 0; i < filenum; i++) {
+    if (file_list[i]->d_type == DT_REG) {  // If it's a regular file
+      char *filename = file_list[i]->d_name;
+      uint64_t level, key, old_key;
+      int keynum;
+      if ((keynum = sscanf(filename, "slab-%lu-%lu-%lu", &level, &old_key, &key)) >= 2) {
+        struct slab *s;
+        printf("FN: %d, level: %lu, key: %lu\n", i, level, old_key);
+        s = create_slab(NULL, level, old_key, 1, filename);
+        // Process the slab file
+        //process_slab_file(level, key);
+        tnt_subtree_add(s, tnt_subtree_create(), 
+                  (void *)filter_create(200000), old_key);
+        if (keynum == 3) {
+          tnt_subtree_update_key(s->key, key);
+          s->key = key;
+        }
+        ret++;
+      } else {
+        file_list[i] = NULL;
+      }
+    }
+    else 
+      file_list[i] = NULL;
+    //free(file_list[i]);
+  }
+  return ret;
+}
+
+static int root_exists() {
+    const char *dir_path = "/scratch0/kvell";
+    const char *prefix = "slab-0-";
+    
+    DIR *dir = opendir(dir_path);
+    if (dir == NULL) {
+        perror("Unable to open directory");
+        return -1;  // 디렉터리를 열 수 없는 경우
+    }
+    
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        // 파일 이름이 "slab-0-"로 시작하는지 확인
+        if (strncmp(entry->d_name, prefix, strlen(prefix)) == 0) {
+            closedir(dir);
+            return 1;  // 해당 파일을 찾은 경우
+        }
+    }
+    
+    closedir(dir);
+    return 0;  // 해당 파일을 찾지 못한 경우
+}
+
+int create_root_slab() {
+  struct slab *s;
   centree_init();
-  struct slab_callback *cb = malloc(sizeof(*cb));
-  cb->cb = NULL;
-  cb->slab = create_slab(NULL, 0, 0);
-  tnt_subtree_add(cb->slab, tnt_subtree_create(), filter_create(200000), 0);
-  free(cb);
+
+  // need to rebuild
+  if (root_exists())
+    return 0;
+
+  s = create_slab(NULL, 0, 0, 0, NULL);
+
+  tnt_subtree_add(s, tnt_subtree_create(), filter_create(200000), 0);
+  return 1;
 }
 
 struct slab *close_and_create_slab(struct slab *s) {
   uint64_t new_key;
+  uint64_t new_level;
 
   // TODO::JS:: add_in_tree 쪽으로 옮겨야함
   R_LOCK(&s->tree_lock);
   new_key = (s->min + s->max) / 2;
+  new_level = tnt_get_centree_level(s->centree_node)+1;
   R_UNLOCK(&s->tree_lock);
 
   // if(s->key != new_key)
@@ -207,10 +281,20 @@ struct slab *close_and_create_slab(struct slab *s) {
   W_LOCK(&s->tree_lock);
   s->key = new_key;
   W_UNLOCK(&s->tree_lock);
+  char path[128], spath[128];
+  int len;
+  sprintf(path, "/proc/self/fd/%d", s->fd);
+  if ((len = readlink(path, spath, 512)) < 0) {
+    perr("Can't find file\n");
+  }
+  spath[len] = 0;
+  strncpy(path, spath, len);
+  snprintf(path + len, 128 - len, "-%lu", s->key);
+  rename(spath, path);
 
-  tnt_subtree_add(create_slab(NULL, 0, new_key - 1), tnt_subtree_create(),
+  tnt_subtree_add(create_slab(NULL, new_level, new_key - 1, 0, NULL), tnt_subtree_create(),
                   (void *)filter_create(200000), new_key - 1);
-  tnt_subtree_add(create_slab(NULL, 0, new_key + 1), tnt_subtree_create(),
+  tnt_subtree_add(create_slab(NULL, new_level, new_key + 1, 0, NULL), tnt_subtree_create(),
                   (void *)filter_create(200000), new_key + 1);
 
   return s;
@@ -256,7 +340,11 @@ void read_item_async_cb(struct slab_callback *callback) {
     }
     spath[len] = 0;
     close(s->fd);
-    unlink(spath);
+    /*strncpy(path, spath, len);*/
+    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+    truncate(spath, 0);
+    /*rename(spath, path);*/
+    //unlink(spath);
     // printf("REMOVED FILE\n");
   }
 skip:
@@ -406,7 +494,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
 
   R_LOCK(&old_s->tree_lock);
   if (old_s->min != -1)
-    removed = tnt_index_invalid_utree(old_s->tree, cb->item);
+    removed = tnt_index_invalid_utree(old_s->subtree, cb->item);
   R_UNLOCK(&old_s->tree_lock);
 
   if (!removed) {
@@ -421,7 +509,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   }
 
   W_LOCK(&s->tree_lock);
-  alrdy = tnt_index_delete(cb->slab->tree, item);
+  alrdy = tnt_index_delete(cb->slab->subtree, item);
   tnt_index_add(cb, item);
 
   if (!alrdy) {
@@ -442,9 +530,9 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   s->update_ref--;
 
   if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
-      !((centree_node)s->tree_node)->removed) {
+      !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
-    ((centree_node)s->tree_node)->removed = 1;
+    ((centree_node)s->centree_node)->removed = 1;
   }
 
   cur = __sync_fetch_and_add(&s->read_ref, 0);
@@ -456,13 +544,17 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
     spath[len] = 0;
     close(s->fd);
-    unlink(spath);
+    /*strncpy(path, spath, len);*/
+    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+    truncate(spath, 0);
+    /*rename(spath, path);*/
+    //unlink(spath);
     //printf("REMOVED FILE\n");
   }
 
   W_UNLOCK(&s->tree_lock);
 
-  if (enqueue) bgq_enqueue(FSST, s->tree_node);
+  if (enqueue) bgq_enqueue(FSST, s->centree_node);
 
   if (cb->cb_cb == add_in_tree_for_update) {
     free(cb->item);

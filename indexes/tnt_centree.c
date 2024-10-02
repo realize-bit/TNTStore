@@ -38,8 +38,8 @@ struct slab {
   uint64_t min;
   uint64_t max;
   uint64_t seq;
-  void *tree;
-  void *tree_node;
+  void *subtree;
+  void *cetree_node;
   void *filter;
   unsigned char *hot_bit;
   unsigned char full;

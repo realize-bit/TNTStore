@@ -64,7 +64,7 @@ struct slab_context {
   uint64_t rdt;  // Latest timestamp
   char *fsst_buf;
   char *fsst_index_buf;
-} * slab_contexts;
+} *slab_contexts;
 
 /* A file is only managed by 1 worker. File => worker function. */
 int get_worker(struct slab *s) { return s->ctx->worker_id; }
@@ -175,7 +175,7 @@ void *kv_read_sync(void *item) {
   // Warning, this is very unsafe, the lookup might not be performed in the
   // worker context => race! We only use that during init.
   R_LOCK(&s->tree_lock);
-  index_entry_t *e = tnt_index_lookup_utree(s->tree, item);
+  index_entry_t *e = tnt_index_lookup_utree(s->subtree, item);
   R_UNLOCK(&s->tree_lock);
   if (e)
     return read_item(s, GET_SIDX(e->slab_idx));
@@ -481,6 +481,179 @@ static void *worker_distributor_init(void *pdata) {
   return NULL;
 }
 
+/*
+ * When first loading a slab from disk we need to rebuild the in memory tree,
+ * these functions do that.
+ */
+int add_existing_item(struct slab *s, size_t idx, void *_item,
+                       struct slab_callback *cb) {
+  struct item_metadata *item = _item;
+  char *item_key = &_item[sizeof(*item)];
+  uint64_t key = *(uint64_t *)item_key;
+
+  if (item->key_size == 0)
+    return 0;
+
+  item->rdt = 0;
+  s->nb_items++;
+  s->last_item++;
+  /*if (idx > s->last_item) s->last_item = idx;*/
+  cb->slab_idx = idx;
+
+  tnt_index_add(cb, item);
+
+  if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
+      printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
+             s->filter, key, cb->slab->seq, cb->slab_idx,
+             item->key_size, item->value_size);
+      return 0;
+  }
+  return 1;
+}
+
+void process_existing_chunk(struct slab *s, char *data, size_t start, 
+                            size_t length, struct slab_callback *cb) {
+  static __thread declare_periodic_count;
+  size_t nb_items_per_page = PAGE_SIZE / s->item_size;
+  size_t nb_pages = length / PAGE_SIZE;
+
+  for (size_t p = 0; p < nb_pages; p++) {
+    size_t page_num =
+        ((start + p * PAGE_SIZE) / PAGE_SIZE);  // Physical page to virtual page
+    size_t base_idx = page_num * nb_items_per_page;
+    size_t current = p * PAGE_SIZE;
+    for (size_t i = 0; i < nb_items_per_page; i++) {
+      if (add_existing_item(s, base_idx, &data[current], cb) == 0)
+        return;
+      base_idx++;
+      current += s->item_size;
+      periodic_count(
+          1000, "[REBUILD WORKER] Init - Recovered %lu items", s->nb_items);
+    }
+  }
+}
+
+#define GRANULARITY_REBUILD (2 * 1024 * 1024)  // We rebuild 2MB by 2MB
+void rebuild_index(struct slab *s, uint64_t key, char *buf) {
+  int fd = s->fd;
+  size_t start = 0, end;
+  struct slab_callback *callback;
+
+  if (s->size_on_disk == 0) {
+    s->last_item = s->nb_max_items;
+    s->full = 1;
+    btree_free(s->subtree);
+    filter_delete(s->filter);
+    free(s->hot_bit);
+    return;
+  }
+
+  callback = malloc(sizeof(*callback));
+  callback->slab = s;
+
+  while (1) {
+    end = start + GRANULARITY_REBUILD;
+    if (end > s->size_on_disk) end = s->size_on_disk;
+    if (((end - start) % PAGE_SIZE) != 0) end = end - (end % PAGE_SIZE);
+    if (((end - start) % PAGE_SIZE) != 0)
+      die("File size is wrong (%%PAGE_SIZE!=0)\n");
+    if (end == start) break;
+    int r = pread(fd, buf, end - start, start);
+    if (r != end - start)
+      perr("pread failed! Read %d instead of %lu (offset %lu)\n", r,
+           end - start, start);
+    process_existing_chunk(s, buf, start, end - start, callback);
+    start = end;
+  }
+
+  free(callback);
+  return;
+}
+
+
+struct dirent **rebuild_list;
+static pthread_lock_t rebuild_lock;
+static int rebuild_totals = 0;
+static int rebuild_ready = 0;
+
+static void *worker_rebuild_init(void *pdata) {
+  struct slab_context *ctx = pdata;
+  char *cached_data;
+  if (ctx->worker_id == 0) {
+    DIR *dir;
+    char *path = "/scratch0/kvell";
+    if ((dir = opendir(path)) != NULL) {
+      // Sort the entries by name
+      rebuild_totals = scandir(path, &rebuild_list, NULL, alphasort);
+      if (rebuild_totals < 0) {
+        perror("scandir");
+      } else {
+        rebuild_slabs(rebuild_totals, rebuild_list);
+        //free(rebuild_list);
+      }
+    } else {
+      perror("Could not open directory");
+    }
+    __sync_add_and_fetch(&rebuild_ready, 1);
+    INIT_LOCK(&rebuild_lock, NULL);
+    rebuild_ready = 1;
+  } else {
+    while (__sync_fetch_and_or(&rebuild_ready, 0) == 0) {
+      NOP10();
+    }
+  }
+
+  cached_data = aligned_alloc(PAGE_SIZE, GRANULARITY_REBUILD);
+
+  while (1) {
+    char *filename = NULL;
+    int keynum;
+    uint64_t level, key, old_key;
+    struct slab *s;
+    // rebuild lock 잡고 rebuild_list에서 엔트리 하나 가져온다. 
+    W_LOCK(&rebuild_lock);
+    for (int i = 0; i < rebuild_totals; i++) {
+      if (rebuild_list[i] != NULL) {
+        filename = rebuild_list[i]->d_name;
+        keynum = sscanf(filename, "slab-%lu-%lu-%lu", &level, &key, &old_key);
+        if (keynum == 3)
+          key = old_key;
+        /*printf("FNUM: %d, level: %lu, key: %lu, keynum: %d\n", i, level, old_key, keynum);*/
+        rebuild_list[i] = NULL;
+        break;
+      }
+    }
+    W_UNLOCK(&rebuild_lock);
+
+    if (filename == NULL) {
+      printf("EXIT\n");
+      free(cached_data);
+      pthread_exit(NULL);
+    }
+
+    // centree에서 slab 가져온다.
+    s = tnt_tree_lookup((void*)key)->slab;
+
+    /*printf("slab %p\n", s);*/
+
+    // 파일을 읽는다.
+    rebuild_index(s, key, cached_data);
+    
+
+    // 하나씩 sub-tree에 집어 넣는다.
+    
+    // 다 넣었으면 min, max, key를 업데이트 한다.
+
+    // 사이즈가 0이면 subtree 및 filter를 없앤다.
+  }
+
+  free(cached_data);
+
+  // db_populate 안하도록 바꾼다.
+  // 다 하면
+  return NULL;
+}
+
 void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
                        int nb_distributors_per_disk) {
   size_t max_pending_callbacks = MAX_NB_PENDING_CALLBACKS_PER_WORKER;
@@ -489,17 +662,30 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
   nb_distributors = nb_disks * nb_distributors_per_disk;
   nb_totals = 0;
 
-  create_root_slab();
+  slab_contexts = calloc(nb_workers + nb_distributors, sizeof(*slab_contexts));
+  if (!create_root_slab()) {
+    pthread_t *t = malloc((nb_distributors + nb_workers)*sizeof(pthread_t));
+    for (size_t w = 0; w < nb_distributors + nb_workers; w++) {
+      struct slab_context *ctx = &slab_contexts[w];
+      ctx->worker_id = w;
+      pthread_create(&t[w], NULL, worker_rebuild_init, ctx);
+    }
+    for (size_t w = 0; w < nb_distributors + nb_workers; w++) {
+      pthread_join(t[w], NULL);
+    }
+    free(t);
+    tnt_print();
+    exit(1);
+  }
 
   pthread_t t;
-  slab_contexts = calloc(nb_workers + nb_distributors, sizeof(*slab_contexts));
   // pagecaches = calloc(nb_workers, sizeof(*pagecaches));
   for (size_t w = 0; w < nb_distributors; w++) {
     struct slab_context *ctx = &slab_contexts[w];
     ctx->worker_id = w;
     ctx->max_pending_callbacks = max_pending_callbacks;
     ctx->callbacks =
-        calloc(ctx->max_pending_callbacks, sizeof(*ctx->callbacks));
+      calloc(ctx->max_pending_callbacks, sizeof(*ctx->callbacks));
     pthread_create(&t, NULL, worker_distributor_init, ctx);
   }
 
@@ -508,7 +694,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
     ctx->worker_id = w;
     ctx->max_pending_callbacks = max_pending_callbacks;
     ctx->callbacks =
-        calloc(ctx->max_pending_callbacks, sizeof(*ctx->callbacks));
+      calloc(ctx->max_pending_callbacks, sizeof(*ctx->callbacks));
     pthread_create(&t, NULL, worker_slab_init, ctx);
   }
 

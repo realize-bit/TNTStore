@@ -194,9 +194,8 @@ centree_node get_next_node(background_queue *queue, centree_node target) {
 static centree centree_root;
 static pthread_lock_t centree_root_lock;
 
-tree_entry_t *centree_worker_lookup(int worker_id, void *item) {
-  return centree_lookup(centree_root, (void *)get_prefix_for_item(item),
-                        tnt_pointer_cmp);
+tree_entry_t *centree_worker_lookup(void *key) {
+  return centree_lookup(centree_root, key, tnt_pointer_cmp);
 }
 
 void centree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
@@ -204,7 +203,7 @@ void centree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
   W_LOCK(&centree_root_lock);
   n = centree_insert(centree_root, (void *)e->key, e, tnt_pointer_cmp);
   W_UNLOCK(&centree_root_lock);
-  e->slab->tree_node = (void *)n;
+  e->slab->centree_node = (void *)n;
 }
 
 // void tnt_subtree_delete(int worker_id, void *item) {
@@ -232,6 +231,10 @@ index_entry_t *subtree_worker_lookup_ukey(subtree_t *tree, uint64_t key) {
     return NULL;
 }
 
+uint64_t tnt_get_centree_level(void *n) {
+  return ((centree_node)n)->value.level;
+}
+
 void tnt_subtree_add(struct slab *s, void *tree, void *filter,
                      uint64_t tmp_key) {
   tree_entry_t e = {
@@ -239,7 +242,7 @@ void tnt_subtree_add(struct slab *s, void *tree, void *filter,
       .key = tmp_key,
       .slab = s,
   };
-  s->tree = tree;
+  s->subtree = tree;
   s->filter = filter;
   centree_worker_insert(0, NULL, &e);
 }
@@ -421,7 +424,7 @@ index_entry_t *tnt_index_lookup(void *item) {
     R_LOCK(&s->tree_lock);
     if (s->min != -1) {
       if (filter_contain(s->filter, (unsigned char *)&key)) {
-        tmp = subtree_worker_lookup_utree(s->tree, item);
+        tmp = subtree_worker_lookup_utree(s->subtree, item);
         if (tmp) {
           //  && !TEST_INVAL(tmp->slab_idx)
           //  이 조건을 지웠는데, update의 lock을 최소화하기 위해서
@@ -506,7 +509,7 @@ tree_scan_res_t tnt_scan(void *item, uint64_t size) {
       int comp_result;
       R_LOCK(&s->tree_lock);
       if (s->min != -1 && filter_contain(s->filter, (unsigned char *)&key)) {
-        tmp = subtree_worker_lookup_ukey(s->tree, key);
+        tmp = subtree_worker_lookup_ukey(s->subtree, key);
         if (tmp) {
           e = tmp;
         }
@@ -537,7 +540,7 @@ void tnt_index_add(struct slab_callback *cb, void *item) {
   index_entry_t new_entry;
   new_entry.slab = cb->slab;
   new_entry.slab_idx = cb->slab_idx;
-  subtree_worker_insert(cb->slab->tree, item, &new_entry);
+  subtree_worker_insert(cb->slab->subtree, item, &new_entry);
 }
 
 int tnt_index_invalid(void *item) {
@@ -555,7 +558,7 @@ int tnt_index_invalid(void *item) {
 
     R_LOCK(&s->tree_lock);
     if (s->min != -1 && filter_contain(s->filter, (unsigned char *)&key)) {
-      if (subtree_worker_invalid_utree(s->tree, item)) {
+      if (subtree_worker_invalid_utree(s->subtree, item)) {
         __sync_fetch_and_sub(&s->nb_items, 1);
         count++;
         return 1;

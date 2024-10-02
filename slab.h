@@ -32,8 +32,8 @@ struct slab {
   uint64_t min;
   uint64_t max;
   uint64_t seq;
-  void *tree;
-  void *tree_node;
+  void *subtree;
+  void *centree_node;
   void *filter;
   unsigned char *hot_bit;
   unsigned char full;
@@ -99,8 +99,8 @@ struct slab_callback {
   struct slab_context *ctx;
 };
 
-struct slab *create_slab(struct slab_context *ctx, int worker_id,
-                         size_t item_size);
+//struct slab *create_slab(struct slab_context *ctx, uint64_t level,
+//                         uint64_t key);
 struct slab *resize_slab(struct slab *s);
 
 void *read_item(struct slab *s, size_t idx);
@@ -113,5 +113,6 @@ void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
 
-void create_root_slab(void);
+int rebuild_slabs(int filenum, struct dirent **file_list);
+int create_root_slab(void);
 #endif

@@ -3,7 +3,7 @@
 
 #define DEBUG 0
 #define PINNING 1
-#define PATH "/scratch%lu/kvell/slab-%d-%lu-%lu"
+#define PATH "/scratch%lu/kvell/slab-%lu-%lu"
 #define FSST_PATH "/scratch0/kvell/fsst-%lu-%lu"
 
 /* In memory structures */

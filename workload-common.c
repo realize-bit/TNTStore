@@ -64,9 +64,9 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   s->update_ref--;
 
   if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
-      !((centree_node)s->tree_node)->removed) {
+      !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
-    ((centree_node)s->tree_node)->removed = 1;
+    ((centree_node)s->centree_node)->removed = 1;
   }
   // if (s->last_item == s->nb_max_items)
   // s->imm = 1;
@@ -80,7 +80,11 @@ void add_in_tree(struct slab_callback *cb, void *item) {
     if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
     spath[len] = 0;
     close(s->fd);
-    unlink(spath);
+    /*strncpy(path, spath, len);*/
+    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+    truncate(spath, 0);
+    /*rename(spath, path);*/
+    //unlink(spath);
     //printf("REMOVED FILE\n");
   }
 
@@ -88,7 +92,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   __sync_fetch_and_add(&nb_totals, 1);
 
-  if (enqueue) bgq_enqueue(FSST, s->tree_node);
+  if (enqueue) bgq_enqueue(FSST, s->centree_node);
 
   if (!cb->cb_cb) {
     free(cb->item);

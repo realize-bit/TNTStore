@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   struct workload w = {
       .api = &YCSB,
       // .api = &DBBENCH,
-      .nb_items_in_db = 30000000LU,
+      .nb_items_in_db = 10000000LU,
       // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
       w.nb_requests = 100000000LU;
       // w.nb_requests = 420000000LU;
     }
-    w.nb_requests = 30000000LU;
+    w.nb_requests = 10000000LU;
     run_workload(&w, workload);
     printf("lookup hit: %d\n", cache_hit);
     printf("try_fsst: %d\n", try_fsst);

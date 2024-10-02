@@ -38,7 +38,6 @@ struct gc_context {
   // uint64_t last_key;
   uint64_t rdt;  // Latest timestamp
 };
-
 int get_fd_from_gtx(struct gc_context *gtx) { return gtx->f->fd; }
 
 struct fsst_file *get_file_from_gtx(struct gc_context *gtx) {
@@ -168,11 +167,12 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
   printf("free %lu %lu %lu %lu\n", s->min, s->max, s->seq, s->nb_items);
   s->min = -1;
   s->max = 0;
-  btree_free(s->tree);
+  btree_free(s->subtree);
+  filter_delete(s->filter);
   free(s->hot_bit);
   inc_empty_tree();
-  s->tree = NULL;
-  s->tree_node = NULL;
+  s->subtree = NULL;
+  /*s->centree_node = NULL;*/
 
   printf("RM %lu\n", s->seq);
 
@@ -183,7 +183,11 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
     if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
     spath[len] = 0;
     close(s->fd);
-    unlink(spath);
+    /*strncpy(path, spath, len);*/
+    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+    truncate(spath, 0);
+    /*rename(spath, path);*/
+    //unlink(spath);
     printf("REMOVED FILE\n");
   }
 
@@ -240,7 +244,7 @@ static void *fsst_worker(void *pdata) {
       pread(victim->slab->fd, vict_file_fsst, victim->slab->size_on_disk, 0);
 
       R_LOCK(&victim->slab->tree_lock);
-      subtree_forall_invalid(victim->slab->tree, skip_or_invalidate_index_fsst);
+      subtree_forall_invalid(victim->slab->subtree, skip_or_invalidate_index_fsst);
       R_UNLOCK(&victim->slab->tree_lock);
     }
 
@@ -261,7 +265,7 @@ void fsst_worker_init(void) {
   struct gc_context *gtx = calloc(1, sizeof(struct gc_context));
   INIT_LOCK(&table_lock, NULL);
   pthread_create(&t, NULL, fsst_worker, NULL);
-  pthread_create(&t, NULL, gc_async_worker, gtx);
+  //pthread_create(&t, NULL, gc_async_worker, gtx);
 }
 
 static void gc_finalize(struct gc_context *gtx, struct slab *s) {
@@ -293,11 +297,12 @@ void remove_tree_for_gc(struct slab_callback *cb) {
   s->min = -1;
   s->max = 0;
 
-  btree_free(s->tree);
+  btree_free(s->subtree);
+  filter_delete(s->filter);
   free(s->hot_bit);
   inc_empty_tree();
-  s->tree = NULL;
-  s->tree_node = NULL;
+  s->subtree = NULL;
+  /*s->centree_node = NULL;*/
 
   printf("END GC %lu\n", s->seq);
   if (s->update_ref == 0 && s->read_ref == 0) {
@@ -307,7 +312,11 @@ void remove_tree_for_gc(struct slab_callback *cb) {
     if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
     spath[len] = 0;
     close(s->fd);
-    unlink(spath);
+    /*strncpy(path, spath, len);*/
+    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+    truncate(spath, 0);
+    /*rename(spath, path);*/
+    //unlink(spath);
     // printf("REMOVED FILE\n");
   }
 
@@ -606,7 +615,7 @@ static void *gc_async_worker(void *pdata) {
       }
 
       R_LOCK(&s->tree_lock);
-      subtree_allvalid_key(s->tree, gtx->d);
+      subtree_allvalid_key(s->subtree, gtx->d);
       R_UNLOCK(&s->tree_lock);
     }
 
