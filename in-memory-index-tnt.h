@@ -35,6 +35,7 @@ void tnt_subtree_add(struct slab *s, void *tree, void *filter,
 void tnt_subtree_delete(int worker_id, void *item);
 void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key);
 
+tree_entry_t *tnt_parent_subtree_get(void *centnode);
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e);
 tree_entry_t *tnt_traverse_use_seq(int seq);
 

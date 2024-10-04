@@ -265,6 +265,11 @@ int subtree_worker_invalid_utree(subtree_t *tree, void *item) {
 /* ========================================= */
 // TNT
 
+tree_entry_t *tnt_parent_subtree_get(void *centnode) {
+  centree_node p = ((centree_node)centnode)->parent;
+  return p ? &p->value : NULL ;
+}
+
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   centree t = centree_root;
   centree_node n = t->root, prev;

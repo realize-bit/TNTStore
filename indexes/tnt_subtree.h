@@ -18,7 +18,7 @@ void subtree_insert(subtree_t *t, unsigned char *k, size_t len,
 struct index_scan subtree_find_n(subtree_t *t, unsigned char *k, size_t len,
                                  size_t n);
 
-void subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, void *data),
+int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),
                          void *data);
 int subtree_forall_invalid(subtree_t *t, void (*cb)(void *data));
 void subtree_free(subtree_t *t);

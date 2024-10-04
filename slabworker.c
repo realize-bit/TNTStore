@@ -497,7 +497,7 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
 
   if ((already = filter_contain(s->filter, (unsigned char *)&key))
     && tnt_index_lookup_utree(s->subtree, item)) {
-    tnt_index_invalid_utree(s->subtree, item);
+    tnt_index_delete(s->subtree, item);
     s->nb_items--;
   }
 
@@ -508,6 +508,9 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   /*if (idx > s->last_item) s->last_item = idx;*/
 
   tnt_index_add(cb, item);
+
+  if (key < s->min) s->min = key;
+  if (key > s->max) s->max = key;
 
   if (!already && filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
@@ -556,6 +559,7 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
     btree_free(s->subtree);
     filter_delete(s->filter);
     free(s->hot_bit);
+    s->subtree = NULL;
     return;
   }
 
@@ -577,13 +581,95 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
     start = end;
   }
 
+  if (s->last_item == s->nb_max_items)
+    s->full = 1;
+
   free(callback);
   return;
 }
 
+void get_all_keys(uint64_t h, int n, void *data) {
+  uint64_t *ks = (uint64_t*)data;
+  ks[n] = h;
+  return;
+}
+
+int compare_uint64(const void *a, const void *b) {
+    uint64_t num1 = *(const uint64_t *)a;
+    uint64_t num2 = *(const uint64_t *)b;
+
+    if (num1 < num2) {
+        return -1;  // num1 is less than num2
+    } else if (num1 > num2) {
+        return 1;   // num1 is greater than num2
+    } else {
+        return 0;   // num1 is equal to num2
+    }
+}
+
+void invalid_indexes(struct slab **sa, int snum, uint64_t *keys) {
+  struct slab *s;
+  int nks, nkeys;
+  tree_entry_t *e;
+  uint64_t *ks = malloc(65536 * sizeof(uint64_t));
+  char *item = create_unique_item(1024, 0);
+  struct item_metadata *meta = (struct item_metadata *)item;
+  char *item_key = &item[sizeof(*meta)];
+
+  for (int i = 0; i < snum; i++) {
+    s = sa[i];
+
+    // Since everything in sa is a leaf, 
+    // just put all keys of it in keys variable unconditionally.
+    nkeys = subtree_forall_keys(s->subtree, get_all_keys, keys);
+    
+    e = tnt_parent_subtree_get(s->centree_node);
+    s = e ? e->slab : NULL;
+
+    while (s != NULL) {
+
+      if (s->subtree == NULL)
+        goto next;
+
+      // First, put all the keys of the moved sub-tree into ks.
+      nks = subtree_forall_keys(s->subtree, get_all_keys, ks);
+
+      qsort(keys, nkeys, sizeof(uint64_t), compare_uint64);
+      qsort(ks, nks, sizeof(uint64_t), compare_uint64);
+
+      int j = 0, k = 0;
+      while (j < nkeys && k < nks) {
+        if (keys[j] == ks[k]) {
+          *(uint64_t *)item_key = ks[k];
+          int r = tnt_index_invalid_utree(s->subtree, item);
+          __sync_fetch_and_sub(&s->nb_items, r);
+          ks[k] = -1;
+          k++;
+        } else if (keys[j] < ks[k]) {
+          j++;
+        } else {
+          k++;
+        }
+      }
+
+      for (k=0; k < nks; k++)
+        if (ks[k] != -1)
+          keys[nkeys++] = ks[k];
+
+    next:
+      // Move to parent
+      e = tnt_parent_subtree_get(s->centree_node);
+      s = e ? e->slab : NULL;
+    }
+  }
+  free(item);
+  free(ks);
+}
 
 struct dirent **rebuild_list;
 static pthread_lock_t rebuild_lock;
+static struct slab **leaf_slab_list;
+static int leaf_slab_totals = 0;
 static int rebuild_totals = 0;
 static int rebuild_ready = 0;
 
@@ -600,17 +686,20 @@ static int numeric_sort(const struct dirent **a, const struct dirent **b) {
 static void *worker_rebuild_init(void *pdata) {
   struct slab_context *ctx = pdata;
   char *cached_data;
+  uint64_t *cached_key;
+  int last_insert;
   if (ctx->worker_id == 0) {
     DIR *dir;
     char *path = "/scratch0/kvell";
     if ((dir = opendir(path)) != NULL) {
       // Sort the entries by name
       rebuild_totals = scandir(path, &rebuild_list, NULL, numeric_sort);
+      leaf_slab_list = malloc(rebuild_totals * sizeof(struct slab*));
       if (rebuild_totals < 0) {
         perror("scandir");
       } else {
+        // make central tree
         rebuild_slabs(rebuild_totals, rebuild_list);
-        //free(rebuild_list);
       }
     } else {
       perror("Could not open directory");
@@ -625,54 +714,98 @@ static void *worker_rebuild_init(void *pdata) {
 
   cached_data = aligned_alloc(PAGE_SIZE, GRANULARITY_REBUILD);
 
+  last_insert = 0;
   while (1) {
     char *filename = NULL;
     int keynum;
     uint64_t level, key, old_key, seq;
+    tree_entry_t *e;
     struct slab *s;
-    // rebuild lock 잡고 rebuild_list에서 엔트리 하나 가져온다. 
     W_LOCK(&rebuild_lock);
-    for (int i = 0; i < rebuild_totals; i++) {
+    // Each pthread selects one subtree to work on.
+    for (int i = last_insert; i < rebuild_totals; i++) {
       if (rebuild_list[i] != NULL) {
         filename = rebuild_list[i]->d_name;
         keynum = sscanf(filename, "slab-%lu-%lu-%lu-%lu", &seq, &level, &key, &old_key);
         if (keynum == 4)
           key = old_key;
-        /*printf("FNUM: %d, level: %lu, key: %lu, keynum: %d\n", i, level, old_key, keynum);*/
+        free(rebuild_list[i]);
         rebuild_list[i] = NULL;
+        last_insert = i;
         break;
       }
     }
     W_UNLOCK(&rebuild_lock);
 
     if (filename == NULL) {
-      printf("EXIT\n");
-      free(cached_data);
-      pthread_exit(NULL);
+      break;
     }
 
-    // centree에서 slab 가져온다.
-    s = tnt_tree_lookup((void*)key)->slab;
+    // Get the slab from centree.
+    e = tnt_tree_lookup((void*)key);
+    if (!e)
+      perr("REBUILD: No matched file with the key\n");
+    s = e->slab;
 
-    /*printf("slab %p\n", s);*/
-
-    // 파일을 읽는다.
+    // Fill the B+-Tree of the subtree.
     rebuild_index(s, key, cached_data);
-    
 
-    // 하나씩 sub-tree에 집어 넣는다.
-    
-    // 다 넣었으면 min, max, key를 업데이트 한다.
+    if (keynum == 3) {
+      s->key = (s->min + s->max) / 2;
+    }
 
-    // 사이즈가 0이면 subtree 및 filter를 없앤다.
+    if (s->full == 0) {
+      W_LOCK(&rebuild_lock);
+      leaf_slab_list[leaf_slab_totals++] = s;
+      W_UNLOCK(&rebuild_lock);
+    }
   }
 
   free(cached_data);
+  __sync_add_and_fetch(&rebuild_ready, 1);
 
-  // db_populate 안하도록 바꾼다.
-  // 다 하면
+  while (__sync_fetch_and_or(&rebuild_ready, 0) < (nb_workers + nb_distributors + 1)) {
+    NOP10();
+  }
+
+  cached_key = aligned_alloc(PAGE_SIZE, GRANULARITY_REBUILD * 3);
+
+  last_insert = 0;
+  while (1) {
+    int i;
+    struct slab *s[10];
+    int snum = 0;
+    W_LOCK(&rebuild_lock);
+    // Each pthread selects one slab to work on.
+    for (i = last_insert; i < leaf_slab_totals; i++) {
+      if (leaf_slab_list[i] != NULL) {
+        s[snum++] = leaf_slab_list[i];
+        leaf_slab_list[i] = NULL;
+        last_insert = i;
+        if (snum == 10)
+          break;
+      }
+    }
+    W_UNLOCK(&rebuild_lock);
+
+    invalid_indexes((struct slab **)&s, snum, cached_key);
+    if (i == leaf_slab_totals)
+      break;
+  }
+
+  if (ctx->worker_id == 0)
+    free(leaf_slab_list);
+  if (ctx->worker_id == 0)
+    free(rebuild_list);
+
+  free(cached_key);
+
+  pthread_exit(NULL);
+
   return NULL;
 }
+  // db_populate 안하도록 바꾼다.
+  // 다 하면
 
 void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
                        int nb_distributors_per_disk) {

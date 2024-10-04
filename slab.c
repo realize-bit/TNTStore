@@ -204,7 +204,6 @@ int rebuild_slabs(int filenum, struct dirent **file_list) {
       int keynum;
       if ((keynum = sscanf(filename, "slab-%lu-%lu-%lu-%lu", &seq, &level, &old_key, &key)) >= 2) {
         struct slab *s;
-        printf("FN: %d, seq: %lu level: %lu, key: %lu\n", i,seq, level, old_key);
         s = create_slab(NULL, level, old_key, 1, filename);
         // Process the slab file
         //process_slab_file(level, key);
@@ -216,11 +215,14 @@ int rebuild_slabs(int filenum, struct dirent **file_list) {
         }
         ret++;
       } else {
+        free(file_list[i]);
         file_list[i] = NULL;
       }
     }
-    else 
+    else {
+      free(file_list[i]);
       file_list[i] = NULL;
+    }
     //free(file_list[i]);
   }
   return ret;

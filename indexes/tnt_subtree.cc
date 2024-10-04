@@ -110,16 +110,17 @@ void subtree_allvalid_key(subtree_t *t, struct index_scan *res) {
   return;
 }
 
-void subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, void *data),
+int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),
                          void *data) {
   btree_map<uint64_t, struct index_entry> *b =
       static_cast<btree_map<uint64_t, struct index_entry> *>(t);
+  int n = 0;
   auto i = b->begin();
   while (i != b->end()) {
-    cb(i->first, data);
+    cb(i->first, n++, data);
     i++;
   }
-  return;
+  return n;
 }
 int subtree_forall_invalid(subtree_t *t, void (*cb)(void *data)) {
   btree_map<uint64_t, struct index_entry> *b =
