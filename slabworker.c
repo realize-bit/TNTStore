@@ -499,6 +499,7 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
     && tnt_index_lookup_utree(s->subtree, item)) {
     tnt_index_delete(s->subtree, item);
     s->nb_items--;
+    __sync_sub_and_fetch(&nb_totals, 1);
   }
 
   meta->rdt = 0;
@@ -507,6 +508,7 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   cb->slab_idx = idx;
   /*if (idx > s->last_item) s->last_item = idx;*/
 
+  __sync_add_and_fetch(&nb_totals, 1);
   tnt_index_add(cb, item);
 
   if (key < s->min) s->min = key;
@@ -643,6 +645,7 @@ void invalid_indexes(struct slab **sa, int snum, uint64_t *keys) {
           *(uint64_t *)item_key = ks[k];
           int r = tnt_index_invalid_utree(s->subtree, item);
           __sync_fetch_and_sub(&s->nb_items, r);
+          __sync_sub_and_fetch(&nb_totals, r);
           ks[k] = -1;
           k++;
         } else if (keys[j] < ks[k]) {
@@ -793,12 +796,18 @@ static void *worker_rebuild_init(void *pdata) {
       break;
   }
 
-  if (ctx->worker_id == 0)
-    free(leaf_slab_list);
-  if (ctx->worker_id == 0)
-    free(rebuild_list);
 
   free(cached_key);
+  __sync_add_and_fetch(&rebuild_ready, 1);
+
+  while (__sync_fetch_and_or(&rebuild_ready, 0) < ((nb_workers + nb_distributors) * 2 + 1)) {
+    NOP10();
+  }
+
+  if (ctx->worker_id == 0) {
+    free(leaf_slab_list);
+    free(rebuild_list);
+  }
 
   pthread_exit(NULL);
 
@@ -827,8 +836,9 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
       pthread_join(t[w], NULL);
     }
     free(t);
-    tnt_print();
-    exit(1);
+    printf("nb_totals: %lu\n", nb_totals);
+    /*tnt_print();*/
+    /*exit(1);*/
   }
 
   pthread_t t;
@@ -857,7 +867,6 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
 }
 
 size_t get_database_size(void) {
-  uint64_t size = 0;
   // TODO::JS
   /*
   size_t nb_slabs = sizeof(slab_sizes)/sizeof(*slab_sizes);
@@ -871,5 +880,5 @@ size_t get_database_size(void) {
   }
   */
 
-  return size;
+  return nb_totals;
 }

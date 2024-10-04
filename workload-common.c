@@ -142,22 +142,6 @@ void repopulate_db(struct workload *w) {
                            ? 0
                            : (w->nb_items_in_db - get_database_size());
 
-  if (nb_inserts !=
-      w->nb_items_in_db) {  // Database at least partially populated
-    // Check that the items correspond to the workload
-    char *db_item = kv_read_sync(workload_item);
-    if (!db_item)
-      die("Running a benchmark on a pre-populated DB, but couldn't determine "
-          "if items in the DB correspond to the benchmark --- please wipe DB "
-          "before benching!\n");
-    struct item_metadata *meta = (struct item_metadata *)db_item;
-    char *item_value = &db_item[sizeof(*meta) + meta->key_size];
-    if (strcmp(w->api->api_name(), item_value))
-      die("Running %s benchmark, but the database contains elements from %s "
-          "benchmark -- please wipe DB before benching!\n",
-          w->api->api_name(), item_value);
-  }
-
   if (nb_inserts == 0) {
     free(workload_item);
     return;
@@ -165,18 +149,6 @@ void repopulate_db(struct workload *w) {
 
   uint64_t nb_items_already_in_db = get_database_size();
 
-  // Say that this database is for that workload
-  if (nb_items_already_in_db == 0) {
-    // TODO::JS::
-    printf("Skip inserting Workload item\n");
-    // struct slab_callback *cb = malloc(sizeof(*cb));
-    // cb->cb = add_in_tree;
-    // cb->payload = NULL;
-    // cb->item = workload_item;
-    // kv_add_async(cb);
-  } else {
-    nb_items_already_in_db--;  // do not count the workload_item
-  }
   if (nb_items_already_in_db != 0 &&
       nb_items_already_in_db != w->nb_items_in_db) {
     /*
