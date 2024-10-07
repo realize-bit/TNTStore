@@ -43,72 +43,6 @@ static off_t item_in_page_offset(struct slab *s, size_t idx) {
 }
 
 /*
- * When first loading a slab from disk we need to rebuild the in memory tree,
- * these functions do that.
- */
-// TODO::JS::지금은 사용 안함. 앞으로도 사용 안하면 제거
-/*
-void add_existing_item(struct slab *s, size_t idx, void *_item, struct
-slab_callback *callback) { struct item_metadata *item = _item; if(item->key_size
-== -1) { // Removed item add_item_in_free_list_recovery(s, idx, item); if(idx >
-s->last_item) s->last_item = idx; } else if(item->key_size != 0) {
-      s->nb_items++;
-      if(idx > s->last_item)
-         s->last_item = idx;
-      if(item->rdt > get_rdt(s->ctx)) // Remember the maximum timestamp existing
-in the DB set_rdt(s->ctx, item->rdt); if(callback) { // Call the user callback
-if it exists callback->slab_idx = idx; callback->cb(callback, item);
-      }
-   } else {
-      //printf("Empty item on page #%lu idx %lu\n", page_num, idx);
-   }
-}
-
-void process_existing_chunk(int slab_worker_id, struct slab *s, size_t nb_files,
-size_t file_idx, char *data, size_t start, size_t length, struct slab_callback
-*callback) { static __thread declare_periodic_count; size_t nb_items_per_page =
-PAGE_SIZE / s->item_size; size_t nb_pages = length / PAGE_SIZE; for(size_t p =
-0; p < nb_pages; p++) { size_t page_num = ((start + p*PAGE_SIZE) / PAGE_SIZE);
-// Physical page to virtual page size_t base_idx =
-page_num*nb_items_per_page*nb_files + file_idx*nb_items_per_page; size_t current
-= p*PAGE_SIZE; for(size_t i = 0; i < nb_items_per_page; i++) {
-         add_existing_item(s, base_idx, &data[current], callback);
-         base_idx++;
-         current += s->item_size;
-      }
-   }
-}
-
-#define GRANULARITY_REBUILD (2*1024*1024) // We rebuild 2MB by 2MB
-void rebuild_index(int slab_worker_id, struct slab *s, struct slab_callback
-*callback) { char *cached_data = aligned_alloc(PAGE_SIZE, GRANULARITY_REBUILD);
-
-   int fd = s->fd;
-   size_t start = 0, end;
-   while(1) {
-      end = start + GRANULARITY_REBUILD;
-      if(end > s->size_on_disk)
-         end = s->size_on_disk;
-      if( ((end - start) % PAGE_SIZE) != 0)
-         end = end - (end % PAGE_SIZE);
-      if( ((end - start) % PAGE_SIZE) != 0)
-         die("File size is wrong (%%PAGE_SIZE!=0)\n");
-      if(end == start)
-         break;
-      int r = pread(fd, cached_data, end - start, start);
-      if(r != end - start)
-         perr("pread failed! Read %d instead of %lu (offset %lu)\n", r,
-end-start, start); process_existing_chunk(slab_worker_id, s, 1, 0, cached_data,
-start, end-start, callback); start = end;
-
-   }
-   free(cached_data);
-   s->last_item++;
-   rebuild_free_list(s);
-}
-*/
-
-/*
  * Create a slab: a file that only contains items of a given size.
  * @callback is a callback that will be called on all previously existing items
  * of the slab if it is restored from disk.
@@ -162,6 +96,10 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   s->update_ref = 0;
   s->read_ref = 0;
   s->hot_pages = 0;
+
+   if (load)
+    s->batched_callbacks = calloc(NUM_LOAD_BATCH, sizeof(struct slab_callback *));
+   s->nb_batched = 0;
 
   INIT_LOCK(&s->tree_lock, NULL);
   s->hot_bit = calloc((s->size_on_disk / PAGE_SIZE / 8), sizeof(char));
@@ -465,6 +403,31 @@ void add_item_async_cb1(struct slab_callback *callback) {
   }
 
   R_UNLOCK(&s->tree_lock);
+  if (load) {
+    W_LOCK(&s->tree_lock);
+    s->batched_callbacks[s->nb_batched++] = callback;
+    if (s->nb_batched == NUM_LOAD_BATCH) {
+      struct slab_callback *batched_callbacks_copy[NUM_LOAD_BATCH];
+      memcpy(batched_callbacks_copy, s->batched_callbacks, NUM_LOAD_BATCH * sizeof(struct slab_callback *));
+      s->nb_batched = 0;
+      if (s->full == 1)
+        free(s->batched_callbacks);
+      W_UNLOCK(&s->tree_lock);
+
+      for (int i=0; i<NUM_LOAD_BATCH; i++) {
+        struct slab_callback *cb = batched_callbacks_copy[i];
+
+        if (cb == NULL)
+          continue;
+
+        kv_add_async_no_lookup(cb, cb->slab, cb->slab_idx);
+      }
+      /*printf("FLUSH BATCh: %lu\n", s->seq);*/
+    } else {
+      W_UNLOCK(&s->tree_lock);
+    }
+    return;
+  }
 
   kv_add_async_no_lookup(callback, callback->slab, callback->slab_idx);
 }

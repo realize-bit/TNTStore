@@ -882,3 +882,30 @@ size_t get_database_size(void) {
 
   return nb_totals;
 }
+
+void flush_batched_load(void) {
+  int seq = 0;
+  tree_entry_t *victim = NULL;
+  struct slab *s = NULL;
+  do {
+    victim = pick_garbage_node();
+    // select not full
+    while (victim && victim->slab->full == 1)
+      victim = pick_garbage_node();
+    if (!victim)
+      break;
+    s = victim->slab;
+    if (s->nb_batched != 0) {
+      for (int i=0; i < s->nb_batched; i++) {
+        struct slab_callback *cb = s->batched_callbacks[i];
+        kv_add_async_no_lookup(cb, cb->slab, cb->slab_idx);
+        // printf("FLUSH: %d\n", s->nb_batched);
+        /*kv_add_async(s->batched_callbacks[i]);*/
+        // update_item_async(s->batched_callbacks[i]);
+        s->batched_callbacks[i] = NULL;
+      }
+      s->nb_batched = 0;
+    }
+    free(s->batched_callbacks);
+  } while (victim);
+}

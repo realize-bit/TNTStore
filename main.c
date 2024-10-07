@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   struct workload w = {
       .api = &YCSB,
       // .api = &DBBENCH,
-      .nb_items_in_db = 10000000LU,
+      .nb_items_in_db = 100000000LU,
       // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and
@@ -69,6 +69,7 @@ int main(int argc, char **argv) {
   repopulate_db(&w);
   load = 0;
 
+  flush_batched_load();
   sleep_until_fsstq_empty();
 
   // flush_batched_load();
@@ -90,7 +91,7 @@ int main(int argc, char **argv) {
                         // ycsb_a_uniform,
                         // ycsb_c_uniform,
                         // ycsb_a_zipfian,
-                        ycsb_a_zipfian,
+                        ycsb_c_zipfian,
                         // dbbench_prefix_dist,
                     };
 

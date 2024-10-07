@@ -25,6 +25,7 @@ struct slab_callback;
 
 /* Header of a slab -- shouldn't contain any pointer as it is persisted on disk.
  */
+#define NUM_LOAD_BATCH 64
 struct slab {
   struct slab_context *ctx;
 
@@ -51,8 +52,8 @@ struct slab {
   uint64_t update_ref;
   uint64_t read_ref;
 
-  // unsigned char batch_idx;
-  // unsigned char nb_batched;
+  unsigned char nb_batched;
+  struct slab_callback **batched_callbacks;
 };
 
 /* This is the callback enqueued in the engine.
