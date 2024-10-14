@@ -52,11 +52,13 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   W_LOCK(&s->tree_lock);
   tnt_index_add(cb, item);
   // s->nb_items++;
+#if WITH_FILTER
   if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
     printf("Fail adding to filter %p %lu %lu\n", s->filter, key, s->nb_items);
   } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
     printf("FIFIFIFIF\n");
   }
+#endif
 
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
@@ -92,7 +94,9 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   __sync_fetch_and_add(&nb_totals, 1);
 
+#if WITH_RC
   if (enqueue) bgq_enqueue(FSST, s->centree_node);
+#endif
 
   if (!cb->cb_cb) {
     free(cb->item);

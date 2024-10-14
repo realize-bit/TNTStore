@@ -6,6 +6,9 @@
 #define PATH "/scratch%lu/kvell/slab-%lu-%lu-%lu"
 #define FSST_PATH "/scratch0/kvell/fsst-%lu-%lu"
 
+#define WITH_RC 0
+#define WITH_FILTER 0
+
 /* In memory structures */
 #define RBTREE 0
 #define BTREE 1

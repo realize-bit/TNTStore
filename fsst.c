@@ -168,7 +168,9 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
   s->min = -1;
   s->max = 0;
   btree_free(s->subtree);
+#if WITH_FILTER
   filter_delete(s->filter);
+#endif
   free(s->hot_bit);
   inc_empty_tree();
   s->subtree = NULL;
@@ -298,7 +300,9 @@ void remove_tree_for_gc(struct slab_callback *cb) {
   s->max = 0;
 
   btree_free(s->subtree);
+#if WITH_FILTER
   filter_delete(s->filter);
+#endif
   free(s->hot_bit);
   inc_empty_tree();
   s->subtree = NULL;

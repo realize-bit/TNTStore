@@ -327,7 +327,7 @@ again:
 
         callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
 
-#ifdef DEBUG
+#if DEBUG
         /*
         struct item_metadata *meta = (struct item_metadata *)callback->item;
         char *item_key = &callback->item[sizeof(*meta)];
@@ -495,12 +495,17 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   if (meta->key_size == 0)
     return 0;
 
-  if ((already = filter_contain(s->filter, (unsigned char *)&key))
-    && tnt_index_lookup_utree(s->subtree, item)) {
-    tnt_index_delete(s->subtree, item);
-    s->nb_items--;
-    __sync_sub_and_fetch(&nb_totals, 1);
+#if WITH_FILTER
+  if ((already = filter_contain(s->filter, (unsigned char *)&key))) {
+#endif
+    if (tnt_index_lookup_utree(s->subtree, item)) {
+      tnt_index_delete(s->subtree, item);
+      s->nb_items--;
+      __sync_sub_and_fetch(&nb_totals, 1);
+    }
+#if WITH_FILTER
   }
+#endif
 
   meta->rdt = 0;
   s->nb_items++;
@@ -514,6 +519,7 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
 
+#if WITH_FILTER
   if (!already && filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
              s->filter, key, cb->slab->seq, cb->slab_idx,
@@ -523,6 +529,7 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
     printf("Error about filter in Rebuilding\n");
   }
+#endif
 
   return 1;
 }
@@ -559,7 +566,9 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
     s->last_item = s->nb_max_items;
     s->full = 1;
     btree_free(s->subtree);
+#if WITH_FILTER
     filter_delete(s->filter);
+#endif
     free(s->hot_bit);
     s->subtree = NULL;
     return;
@@ -906,6 +915,7 @@ void flush_batched_load(void) {
       }
       s->nb_batched = 0;
     }
-    free(s->batched_callbacks);
+    if (!s->batched_callbacks)
+      free(s->batched_callbacks);
   } while (victim);
 }

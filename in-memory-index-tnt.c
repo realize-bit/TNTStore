@@ -428,7 +428,9 @@ index_entry_t *tnt_index_lookup(void *item) {
     struct slab *s = n->value.slab;
     R_LOCK(&s->tree_lock);
     if (s->min != -1) {
+#if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
+#endif
         tmp = subtree_worker_lookup_utree(s->subtree, item);
         if (tmp) {
           //  && !TEST_INVAL(tmp->slab_idx)
@@ -438,7 +440,9 @@ index_entry_t *tnt_index_lookup(void *item) {
           R_UNLOCK(&s->tree_lock);
           break;
         }
+#if WITH_FILTER
       }
+#endif
     }
     R_UNLOCK(&s->tree_lock);
 
@@ -513,11 +517,17 @@ tree_scan_res_t tnt_scan(void *item, uint64_t size) {
       struct slab *s = n->value.slab;
       int comp_result;
       R_LOCK(&s->tree_lock);
-      if (s->min != -1 && filter_contain(s->filter, (unsigned char *)&key)) {
-        tmp = subtree_worker_lookup_ukey(s->subtree, key);
-        if (tmp) {
-          e = tmp;
+      if (s->min != -1) {
+#if WITH_FILTER
+        if (filter_contain(s->filter, (unsigned char *)&key)) {
+#endif
+          tmp = subtree_worker_lookup_ukey(s->subtree, key);
+          if (tmp) {
+            e = tmp;
+          }
+#if WITH_FILTER
         }
+#endif
       }
       comp_result = tnt_pointer_cmp((void *)key, n->key);
       R_UNLOCK(&s->tree_lock);
@@ -562,14 +572,20 @@ int tnt_index_invalid(void *item) {
     int comp_result;
 
     R_LOCK(&s->tree_lock);
-    if (s->min != -1 && filter_contain(s->filter, (unsigned char *)&key)) {
-      if (subtree_worker_invalid_utree(s->subtree, item)) {
-        __sync_fetch_and_sub(&s->nb_items, 1);
-        count++;
-        R_UNLOCK(&s->tree_lock);
-        R_UNLOCK(&centree_root_lock);
-        return 1;
+    if (s->min != -1) {
+#if WITH_FILTER
+      if (filter_contain(s->filter, (unsigned char *)&key)) {
+#endif
+        if (subtree_worker_invalid_utree(s->subtree, item)) {
+          __sync_fetch_and_sub(&s->nb_items, 1);
+          count++;
+          R_UNLOCK(&s->tree_lock);
+          R_UNLOCK(&centree_root_lock);
+          return 1;
+        }
+#if WITH_FILTER
       }
+#endif
     }
     comp_result = tnt_pointer_cmp((void *)key, n->key);
 

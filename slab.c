@@ -99,6 +99,8 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
 
    if (load)
     s->batched_callbacks = calloc(NUM_LOAD_BATCH, sizeof(struct slab_callback *));
+   else
+    s->batched_callbacks = NULL;
    s->nb_batched = 0;
 
   INIT_LOCK(&s->tree_lock, NULL);
@@ -145,8 +147,13 @@ int rebuild_slabs(int filenum, struct dirent **file_list) {
         s = create_slab(NULL, level, old_key, 1, filename);
         // Process the slab file
         //process_slab_file(level, key);
+#if WITH_FILTER
         tnt_subtree_add(s, tnt_subtree_create(), 
                   (void *)filter_create(200000), old_key);
+#else
+        tnt_subtree_add(s, tnt_subtree_create(), 
+                  NULL, old_key);
+#endif
         if (keynum == 4) {
           tnt_subtree_update_key(s->key, key);
           s->key = key;
@@ -199,7 +206,11 @@ int create_root_slab() {
 
   s = create_slab(NULL, 0, 0, 0, NULL);
 
+#if WITH_FILTER
   tnt_subtree_add(s, tnt_subtree_create(), filter_create(200000), 0);
+#else
+  tnt_subtree_add(s, tnt_subtree_create(), NULL, 0);
+#endif
   return 1;
 }
 
@@ -232,10 +243,17 @@ struct slab *close_and_create_slab(struct slab *s) {
   snprintf(path + len, 128 - len, "-%lu", s->key);
   rename(spath, path);
 
+#if WITH_FILTER
   tnt_subtree_add(create_slab(NULL, new_level, new_key - 1, 0, NULL), tnt_subtree_create(),
                   (void *)filter_create(200000), new_key - 1);
   tnt_subtree_add(create_slab(NULL, new_level, new_key + 1, 0, NULL), tnt_subtree_create(),
                   (void *)filter_create(200000), new_key + 1);
+#else
+  tnt_subtree_add(create_slab(NULL, new_level, new_key - 1, 0, NULL), tnt_subtree_create(),
+                  NULL, new_key - 1);
+  tnt_subtree_add(create_slab(NULL, new_level, new_key + 1, 0, NULL), tnt_subtree_create(),
+                  NULL, new_key + 1);
+#endif
 
   return s;
 }
@@ -350,7 +368,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
   else
     memcpy(&disk_page[offset_in_page], item, get_item_size(item));
 
-#ifdef DEBUG
+#if DEBUG
     /*
     char *item_key = &callback->item[sizeof(*meta)];
     uint64_t key = *(uint64_t*)item_key;
@@ -480,6 +498,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   if (!alrdy) {
     __sync_fetch_and_add(&nb_totals, 1);
     // s->nb_items++;
+#if WITH_FILTER
     if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
       printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n",
              s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq,
@@ -487,6 +506,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
       printf("FIFIFIFIF UPUP\n");
     }
+#endif
   }
 
   if (key < s->min) s->min = key;
@@ -519,7 +539,9 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
 
   W_UNLOCK(&s->tree_lock);
 
+#if WITH_RC
   if (enqueue) bgq_enqueue(FSST, s->centree_node);
+#endif
 
   if (cb->cb_cb == add_in_tree_for_update) {
     free(cb->item);

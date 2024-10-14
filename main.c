@@ -1,7 +1,7 @@
 #include "headers.h"
 
 int print = 0;
-int load = 1;
+int load = 0;
 extern int cache_hit;
 extern int try_fsst;
 
@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   struct workload w = {
       .api = &YCSB,
       // .api = &DBBENCH,
-      .nb_items_in_db = 100000000LU,
+      .nb_items_in_db = 10000000LU,
       // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and
@@ -63,14 +63,19 @@ int main(int argc, char **argv) {
   }
   stop_timer("Init found %lu elements", get_database_size());
 
+#if WITH_RC
   fsst_worker_init();
+#endif
 
   /* Add missing items if any */
   repopulate_db(&w);
   load = 0;
 
   flush_batched_load();
+
+#if WITH_RC
   sleep_until_fsstq_empty();
+#endif
 
   // flush_batched_load();
 
