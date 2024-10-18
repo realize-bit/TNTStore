@@ -104,7 +104,6 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
    s->nb_batched = 0;
 
   INIT_LOCK(&s->tree_lock, NULL);
-  s->hot_bit = calloc((s->size_on_disk / PAGE_SIZE / 8), sizeof(char));
 
   return s;
 }

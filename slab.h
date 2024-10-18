@@ -36,7 +36,6 @@ struct slab {
   void *subtree;
   void *centree_node;
   void *filter;
-  unsigned char *hot_bit;
   unsigned char full;
   pthread_lock_t tree_lock;
 

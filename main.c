@@ -1,7 +1,7 @@
 #include "headers.h"
 
 int print = 0;
-int load = 0;
+int load = 1;
 extern int cache_hit;
 extern int try_fsst;
 
@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   struct workload w = {
       .api = &YCSB,
       // .api = &DBBENCH,
-      .nb_items_in_db = 10000000LU,
+      .nb_items_in_db = 100000000LU,
       // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
       //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
                         // ycsb_a_uniform,
                         // ycsb_c_uniform,
                         // ycsb_a_zipfian,
-                        ycsb_c_zipfian,
+                        ycsb_c_uniform,
                         // dbbench_prefix_dist,
                     };
 
@@ -117,14 +117,13 @@ int main(int argc, char **argv) {
       w.nb_requests = 100000000LU;
       // w.nb_requests = 420000000LU;
     }
-    w.nb_requests = 10000000LU;
+    w.nb_requests = 100000000LU;
     run_workload(&w, workload);
     printf("lookup hit: %d\n", cache_hit);
     printf("try_fsst: %d\n", try_fsst);
     cache_hit = 0;
   }
   tnt_print();
-  print_table();
 
   /*
   foreach(workload, workloads) {

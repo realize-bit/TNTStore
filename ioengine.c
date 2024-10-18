@@ -215,6 +215,7 @@ char *read_page_async(struct slab_callback *callback) {
   if (lru_entry->contains_data) {  // content is cached already
     struct slab *s = callback->slab;
     __sync_add_and_fetch(&cache_hit, 1);
+#if WITH_HOT
     if (callback->lru_entry->hot_page_checked == 2 
       && !tnt_centree_node_is_child(s->centree_node)
       && s->hot_pages < (s->nb_items/40)) {
@@ -225,9 +226,9 @@ char *read_page_async(struct slab_callback *callback) {
         (callback->slab_idx % items_per_page) * 1024;
       item = malloc(1024);
       memcpy(item, &disk_page[in_page_offset], 1024);
-      //printf("HOT EnQ2: %lu\n", s->seq);
       bgq_enqueue(GC, item);
     }
+#endif
     callback->io_cb(callback);  // call the callback directly
     return disk_page;
   }
@@ -360,7 +361,9 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       struct iocb *cb = (void *)ctx->events[i].obj;
       struct slab_callback *callback = (void *)cb->aio_data;
       char *item;
+#if WITH_HOT
       struct slab *s;
+#endif
       if (ctx->events[i].res != 4096) {
         printf("ret: %llu, Seq: %lu, key: %lu\n", ctx->events[i].res,
                callback->slab->seq, callback->slab_idx);
@@ -368,6 +371,7 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       assert(ctx->events[i].res == 4096);  // otherwise page hasn't been read
       callback->lru_entry->contains_data = 1;
       callback->lru_entry->dirty = 0;  // done before
+#if WITH_HOT
       s = callback->slab;
       if (callback->lru_entry->hot_page_checked == 2 
       && !tnt_centree_node_is_child(s->centree_node)
@@ -382,6 +386,7 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
         //printf("HOT EnQ1: %lu\n", s->seq);
         bgq_enqueue(GC, item);
       }
+#endif
 
       callback->io_cb(callback);
     }
@@ -399,120 +404,4 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
 
 int io_pending(struct io_context *ctx) {
   return ctx->sent_io - ctx->processed_io;
-}
-
-char *write_gc_async(struct gc_context *gtx, struct slab_callback *cb,
-                     uint64_t buf_num, uint64_t file_num, int is_data) {
-  struct io_context *ctx = get_io_context_from_gtx(gtx);
-  int buffer_idx = ctx->sent_io % ctx->max_pending_io;
-  struct iocb *_iocb = &ctx->iocb[buffer_idx];
-  char *page = is_data ? get_databuf_from_gtx(gtx) : get_indexbuf_from_gtx(gtx);
-  void *disk_page = &page[buf_num * PAGE_SIZE];
-
-  // if (!is_data)
-  //  printf("buf_num: %lu, file_num: %lu\n", buf_num, file_num);
-  memset(_iocb, 0, sizeof(*_iocb));
-  // memset(&ctx->events[buffer_idx%64], 0, sizeof(struct io_event));
-  _iocb->aio_fildes = get_fd_from_gtx(gtx);
-  _iocb->aio_lio_opcode = IOCB_CMD_PWRITE;
-  _iocb->aio_buf = (uint64_t)disk_page;
-  _iocb->aio_data = (uint64_t)cb;
-  _iocb->aio_offset = file_num * PAGE_SIZE;
-  // _iocb->aio_rw_flags = RWF_APPEND;
-  _iocb->aio_nbytes = PAGE_SIZE;
-  if (ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
-    die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n",
-        ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
-  ctx->sent_io++;
-  return NULL;
-}
-
-char *read_gc_async(struct gc_context *gtx, uint64_t buf_num, int file_fd) {
-  struct io_context *ctx = get_io_context_from_gtx(gtx);
-  int buffer_idx = ctx->sent_io % ctx->max_pending_io;
-  struct iocb *_iocb = &ctx->iocb[buffer_idx];
-  char *page = get_victbuf_from_gtx(gtx);
-  void *disk_page = &page[buf_num * PAGE_SIZE];
-
-  // printf("buf_num: %lu\n", buf_num);
-  memset(_iocb, 0, sizeof(*_iocb));
-  _iocb->aio_fildes = file_fd;
-  _iocb->aio_lio_opcode = IOCB_CMD_PREAD;
-  _iocb->aio_buf = (uint64_t)disk_page;
-  _iocb->aio_offset = buf_num * PAGE_SIZE;
-  _iocb->aio_nbytes = PAGE_SIZE;
-  if (ctx->sent_io - ctx->processed_io >= ctx->max_pending_io)
-    die("Sent %lu ios, processed %lu (> %lu waiting), IO buffer is too full!\n",
-        ctx->sent_io, ctx->processed_io, ctx->max_pending_io);
-  ctx->sent_io++;
-  return NULL;
-}
-
-/* Enqueue requests */
-void gc_ioengine_enqueue_ios(struct io_context *ctx) {
-  size_t pending = ctx->sent_io - ctx->processed_io;
-  int ret = 0;
-  if (pending == 0) {
-    ctx->ios_sent_to_disk = 0;
-    return;
-  }
-  /*if(pending > QUEUE_DEPTH)
-     pending = QUEUE_DEPTH;*/
-
-  for (size_t i = 0; i < pending; i++)
-    ctx->iocbs[i] = &ctx->iocb[(ctx->processed_io + i) % ctx->max_pending_io];
-
-  // Submit requests to the kernel
-  ret = io_submit(ctx->ctx, pending, ctx->iocbs);
-  if (ret != pending)
-    perr(
-        "Couldn't submit all io requests! %d submitted / %lu (%lu sent, %lu "
-        "processed)\n",
-        ret, pending, ctx->sent_io, ctx->processed_io);
-  ctx->ios_sent_to_disk = ret;
-}
-
-/* Get processed requests from disk and call callbacks */
-void gc_ioengine_get_completed_ios(struct io_context *ctx) {
-  int ret = 0;
-  declare_debug_timer;
-
-  if (ctx->ios_sent_to_disk == 0) return;
-
-  start_debug_timer {
-    ret = io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret,
-                       ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
-    // while (ret < ctx->ios_sent_to_disk) {
-    //    printf("Problem: only got %d answers out of %lu enqueued IO
-    //    requests\n", ret, ctx->ios_sent_to_disk); ret +=
-    //    io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret,
-    //    ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
-    // }
-    if (ret != ctx->ios_sent_to_disk) {
-      die("Problem: only got %d answers out of %lu enqueued IO requests\n", ret,
-          ctx->ios_sent_to_disk);
-    }
-  }
-  stop_debug_timer(10000, "io_getevents took more than 10ms!!");
-}
-
-void gc_ioengine_process_completed_ios(struct io_context *ctx) {
-  int ret = ctx->ios_sent_to_disk;
-
-  if (ctx->ios_sent_to_disk == 0) return;
-  // Ok, now the main thread can push more requests
-  // Enqueue completed IO requests
-  for (size_t i = 0; i < ret; i++) {
-    struct iocb *cb = (void *)ctx->events[i].obj;
-    struct slab_callback *callback = (void *)cb->aio_data;
-    if (ctx->events[i].res != 4096) {
-      printf("ret: %llu, i/total: %lu/%d, offset: %llu\n", ctx->events[i].res,
-             i, ret, cb->aio_offset);
-    }
-    assert(ctx->events[i].res == 4096);  // otherwise page hasn't been read
-    if (callback)  // gc를 위한 read & index write는 cb없음
-      callback->io_cb(callback);
-  }
-
-  ctx->processed_io += ctx->ios_sent_to_disk;
 }

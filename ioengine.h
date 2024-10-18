@@ -15,11 +15,4 @@ int io_pending(struct io_context *ctx);
 void worker_ioengine_enqueue_ios(struct io_context *ctx);
 void worker_ioengine_get_completed_ios(struct io_context *ctx);
 void worker_ioengine_process_completed_ios(struct io_context *ctx);
-char *write_gc_async(struct gc_context *gtx, struct slab_callback *cb,
-                     uint64_t buf_num, uint64_t file_num, int is_data);
-char *read_gc_async(struct gc_context *gtx, uint64_t buf_num, int file_fd);
-void gc_ioengine_enqueue_ios(struct io_context *ctx);
-void gc_ioengine_get_completed_ios(struct io_context *ctx);
-void gc_ioengine_process_completed_ios(struct io_context *ctx);
-
 #endif

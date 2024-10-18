@@ -144,7 +144,6 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
     if (lru_entry->hot_page_checked == 0) {
       __sync_add_and_fetch(&s->hot_pages, 1);
       lru_entry->hot_page_checked = 1;
-      hot_bit_set(s, page_num);
     } else if (lru_entry->hot_page_checked == 1) {
       __sync_add_and_fetch(&s->hotest_pages, 1);
       lru_entry->hot_page_checked = 2;
@@ -168,8 +167,6 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
       __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hot_pages, 1);
       if (lru_entry->hot_page_checked == 2)
         __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hotest_pages, 1);
-
-      hot_bit_unset(s, page_num);
     }
     tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);
 
@@ -238,30 +235,4 @@ int get_page_for_file(struct pagecache *p, uint64_t hash, uint64_t size,
   *lru = lru_entry;
 
   return 0;
-}
-
-void hot_bit_set(struct slab *s, size_t page_offset) {
-  size_t bit_index = page_offset / PAGE_SIZE;
-  size_t byte_index = bit_index / 8;
-  size_t bit_position = bit_index % 8;
-
-  s->hot_bit[byte_index] |= (1 << bit_position);
-}
-
-// 파일의 페이지 오프셋을 주고, 해당하는 비트가 set인지 아닌지 확인하는 함수
-int hot_bit_check(struct slab *s, size_t page_offset) {
-  size_t bit_index = page_offset / PAGE_SIZE;
-  size_t byte_index = bit_index / 8;
-  size_t bit_position = bit_index % 8;
-
-  return (s->hot_bit[byte_index] & (1 << bit_position)) != 0;
-}
-
-// 파일의 페이지 오프셋을 주고, 해당하는 비트를 unset하는 함수
-void hot_bit_unset(struct slab *s, size_t page_offset) {
-  size_t bit_index = page_offset / PAGE_SIZE;
-  size_t byte_index = bit_index / 8;
-  size_t bit_position = bit_index % 8;
-
-  s->hot_bit[byte_index] &= ~(1 << bit_position);
 }

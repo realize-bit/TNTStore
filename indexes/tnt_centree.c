@@ -41,7 +41,6 @@ struct slab {
   void *subtree;
   void *cetree_node;
   void *filter;
-  unsigned char *hot_bit;
   unsigned char full;
   pthread_rwlock_t tree_lock;
 

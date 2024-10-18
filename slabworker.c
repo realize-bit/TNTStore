@@ -284,14 +284,8 @@ again:
       case READ:
         if (!e) {  // Item is not in DB
           __sync_add_and_fetch(&try_fsst, 1);
-          callback->fsst_buf = ctx->fsst_buf;
-          callback->fsst_index_buf = ctx->fsst_index_buf;
-          read_item_async_from_fsst(callback);
-          if (!callback->cb) {
-            printf("no index for update\n");
-            break;
-          }
-          callback->cb(callback, callback->item);
+          if (!callback->cb)
+            printf("no index for lookup!!!!\n");
           break;
         } else {
           callback->slab = e->slab;
@@ -569,7 +563,6 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
 #if WITH_FILTER
     filter_delete(s->filter);
 #endif
-    free(s->hot_bit);
     s->subtree = NULL;
     return;
   }
