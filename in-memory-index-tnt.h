@@ -28,6 +28,7 @@ int subtree_worker_delete(subtree_t *tree, void *item);
 void centree_init(void);
 struct tree_entry *tnt_worker_lookup(int worker_id, void *item);
 
+int tnt_centree_node_is_child (centree_node n);
 uint64_t tnt_get_centree_level(void *n);
 subtree_t *tnt_subtree_create(void);
 void tnt_subtree_add(struct slab *s, void *tree, void *filter,
@@ -51,10 +52,10 @@ void tnt_print(void);
 background_queue *bgq_get(enum fsst_mode m);
 int bgq_is_empty(enum fsst_mode m);
 int bgq_count(enum fsst_mode m);
-void bgq_enqueue(enum fsst_mode m, centree_node n);
-tree_entry_t *bgq_dequeue(enum fsst_mode m);
-tree_entry_t *bgq_front(enum fsst_mode m);
-centree_node bgq_front_node(enum fsst_mode m);
+void bgq_enqueue(enum fsst_mode m, void *n);
+void *bgq_dequeue(enum fsst_mode m);
+void *bgq_front(enum fsst_mode m);
+void *bgq_front_node(enum fsst_mode m);
 
 centree_node dequeue_specific_node(background_queue *queue,
                                    centree_node target);

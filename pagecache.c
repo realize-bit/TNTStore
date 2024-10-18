@@ -145,6 +145,9 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
       __sync_add_and_fetch(&s->hot_pages, 1);
       lru_entry->hot_page_checked = 1;
       hot_bit_set(s, page_num);
+    } else if (lru_entry->hot_page_checked == 1) {
+      __sync_add_and_fetch(&s->hotest_pages, 1);
+      lru_entry->hot_page_checked = 2;
     }
     *page = dst;
     *lru = lru_entry;
@@ -163,6 +166,9 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
 
     if (lru_entry->hot_page_checked) {
       __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hot_pages, 1);
+      if (lru_entry->hot_page_checked == 2)
+        __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hotest_pages, 1);
+
       hot_bit_unset(s, page_num);
     }
     tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);

@@ -24,34 +24,39 @@ background_queue *bgq_get(enum fsst_mode m) {
 
 int bgq_is_empty(enum fsst_mode m) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   int count;
-  R_LOCK(&lock);
+  int ret;
+  R_LOCK(lock);
   count = queue->count;
-  R_UNLOCK(&lock);
+  R_UNLOCK(lock);
   return count == 0;
 }
 
 int bgq_count(enum fsst_mode m) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   int count;
 
-  R_LOCK(&lock);
+  R_LOCK(lock);
   count = queue->count;
-  R_UNLOCK(&lock);
+  R_UNLOCK(lock);
   return count;
 }
 
-void bgq_enqueue(enum fsst_mode m, centree_node n) {
+void bgq_enqueue(enum fsst_mode m, void *n) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   bgq_node *new = (bgq_node *)malloc(sizeof(bgq_node));
-  new->data = n;
+  if (new == NULL) die("Fail Allocation\n");
+  if (m == GC) 
+    new->item = n;
+  else
+    new->data = n;
   new->next = NULL;
-  printf("mode: %d, enqueu: %lu\n", m, n->value.slab->seq);
+  //printf("mode: %d, enqueu: %lu\n", m, n->value.slab->seq);
 
-  W_LOCK(&lock);
+  W_LOCK(lock);
   if (is_empty(queue)) {
     queue->front = new;
   } else {
@@ -59,59 +64,89 @@ void bgq_enqueue(enum fsst_mode m, centree_node n) {
   }
   queue->rear = new;
   queue->count++;
-  W_UNLOCK(&lock);
+  W_UNLOCK(lock);
 }
 
-tree_entry_t *bgq_dequeue(enum fsst_mode m) {
+void *bgq_dequeue(enum fsst_mode m) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   centree_node data;
+  char *item;
   bgq_node *ptr;
-  W_LOCK(&lock);
+  W_LOCK(lock);
   if (is_empty(queue)) {
-    W_UNLOCK(&lock);
-    return 0;
+    W_UNLOCK(lock);
+    return NULL;
   }
   ptr = queue->front;
-  data = ptr->data;
+  if (ptr == NULL)
+    printf("WHAT?\n");
+  if (m == GC)
+    item = ptr->item;
+  else
+    data = ptr->data;
   queue->front = ptr->next;
+
+  // Check if the queue becomes empty after dequeue
+  if (queue->front == NULL) {
+    queue->rear = NULL;  // Set rear to NULL when the queue is empty
+  }
+
   queue->count--;
-  W_UNLOCK(&lock);
+  W_UNLOCK(lock);
   free(ptr);
 
-  return &data->value;
-}
-
-tree_entry_t *bgq_front(enum fsst_mode m) {
-  background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
-  centree_node data;
-  bgq_node *ptr;
-  R_LOCK(&lock);
-  if (is_empty(queue)) {
-    W_UNLOCK(&lock);
-    return 0;
-  }
-  ptr = queue->front;
-  data = ptr->data;
-  R_UNLOCK(&lock);
+  if (m == GC)
+    return item;
 
   return &data->value;
 }
 
-centree_node bgq_front_node(enum fsst_mode m) {
+void *bgq_front(enum fsst_mode m) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
-  pthread_lock_t lock = m == GC ? gc_lock : fsst_lock;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   centree_node data;
+  char *item;
   bgq_node *ptr;
-  R_LOCK(&lock);
+  R_LOCK(lock);
   if (is_empty(queue)) {
-    W_UNLOCK(&lock);
+    R_UNLOCK(lock);
     return 0;
   }
   ptr = queue->front;
-  data = ptr->data;
-  R_UNLOCK(&lock);
+  if (m == GC)
+    item = ptr->item;
+  else
+    data = ptr->data;
+  R_UNLOCK(lock);
+
+  if (m == GC)
+    return item;
+
+  return &data->value;
+}
+
+void *bgq_front_node(enum fsst_mode m) {
+  background_queue *queue = m == GC ? gc_queue : fsst_queue;
+  pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
+  centree_node data;
+  char *item;
+  bgq_node *ptr;
+  R_LOCK(lock);
+  if (is_empty(queue)) {
+    R_UNLOCK(lock);
+    return 0;
+  }
+  ptr = queue->front;
+  if (m == GC)
+    item = ptr->item;
+  else
+    data = ptr->data;
+  queue->front = ptr->next;
+  R_UNLOCK(lock);
+
+  if (m == GC)
+    return item;
 
   return data;
 }
@@ -229,6 +264,10 @@ index_entry_t *subtree_worker_lookup_ukey(subtree_t *tree, uint64_t key) {
     return &tmp_entry;
   else
     return NULL;
+}
+
+int tnt_centree_node_is_child (centree_node n) {
+  return !n->right && !n->left;
 }
 
 uint64_t tnt_get_centree_level(void *n) {
@@ -606,7 +645,7 @@ int tnt_index_invalid(void *item) {
 subtree_t *tnt_subtree_create(void) { return subtree_create(); }
 
 void centree_init(void) {
-  centree_root = malloc(sizeof(*centree_root));
+  //centree_root = malloc(sizeof(*centree_root));
   centree_root = centree_create();
   gc_queue = malloc(sizeof(background_queue));
   fsst_queue = malloc(sizeof(background_queue));

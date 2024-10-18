@@ -50,6 +50,7 @@ struct slab {
   size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
+  size_t hotest_pages;
 
   int fd;
   size_t size_on_disk;
@@ -67,7 +68,7 @@ void init_queue(background_queue *queue) {
 }
 
 int is_empty(background_queue *queue) {
-  return queue->count == 0;  // 큐안의 노드 개수가 0이면 빈 상태
+  return queue->count == 0 ;  // 큐안의 노드 개수가 0이면 빈 상태
 }
 
 void enqueue_centnode(background_queue *queue, node n) {
@@ -237,8 +238,9 @@ void print2DUtil(node n, int space) {
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
   if (!n->removed)
-    printf("%lu,%lu:%lu//%lu\n", n->value.seq, n->value.level,
-           n->value.slab->nb_items, n->value.slab->hot_pages);
+    printf("%lu,%lu:%lu//%lu//%lu\n", n->value.seq, n->value.level,
+           n->value.slab->nb_items, n->value.slab->hot_pages, 
+           n->value.slab->hotest_pages);
   else
     printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);
 

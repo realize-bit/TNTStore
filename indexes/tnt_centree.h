@@ -53,7 +53,10 @@ typedef struct centree_t {
 } * centree;
 
 typedef struct bgq_node_t {
-  struct centree_node_t* data;
+  union {
+    struct centree_node_t* data;
+    char* item;
+  };
   struct bgq_node_t* next;
 } bgq_node;
 

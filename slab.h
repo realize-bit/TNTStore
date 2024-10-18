@@ -46,6 +46,7 @@ struct slab {
   size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
+  size_t hotest_pages;
 
   int fd;
   size_t size_on_disk;
@@ -99,6 +100,8 @@ struct slab_callback {
   };
   struct slab_context *ctx;
 };
+
+void add_in_tree_for_update(struct slab_callback *cb, void *item);
 
 //struct slab *create_slab(struct slab_context *ctx, uint64_t level,
 //                         uint64_t key);

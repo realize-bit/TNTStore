@@ -228,7 +228,8 @@ void skip_or_invalidate_index_fsst(void *e) {
 // 그냥 직접 노드 선택하기 (뭘 기준으로?)
 tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
 
-#define NODE_BATCH 8
+#define NODE_BATCH 128
+#define HOT_BATCH 16384
 
 static void *fsst_worker(void *pdata) {
   vict_file_fsst = aligned_alloc(PAGE_SIZE, 16384 * PAGE_SIZE);
@@ -236,18 +237,46 @@ static void *fsst_worker(void *pdata) {
   if (!vict_file_fsst) die("FSST Static Buf Error\n");
 
   while (1) {
-    if (bgq_is_empty(FSST)) {
+      printf("Hot Q: %d\n", bgq_count(GC));
+    if (bgq_is_empty(FSST) && bgq_is_empty(GC)) {
       goto fsst_sleep;
     }
-    for (size_t i = 0; i < NODE_BATCH; i++) {
-      tree_entry_t *victim = bgq_dequeue(FSST);
-      if (!victim) goto fsst_sleep;
-      printf("FSST %lu\n", i);
-      pread(victim->slab->fd, vict_file_fsst, victim->slab->size_on_disk, 0);
 
-      R_LOCK(&victim->slab->tree_lock);
-      subtree_forall_invalid(victim->slab->subtree, skip_or_invalidate_index_fsst);
-      R_UNLOCK(&victim->slab->tree_lock);
+    if (!bgq_is_empty(FSST)) {
+      for (size_t i = 0; i < NODE_BATCH; i++) {
+        tree_entry_t *victim = (tree_entry_t *)bgq_dequeue(FSST);
+        if (!victim) goto fsst_sleep;
+        printf("FSST %lu\n", i);
+        pread(victim->slab->fd, vict_file_fsst, victim->slab->size_on_disk, 0);
+
+        R_LOCK(&victim->slab->tree_lock);
+        subtree_forall_invalid(victim->slab->subtree, skip_or_invalidate_index_fsst);
+        R_UNLOCK(&victim->slab->tree_lock);
+      }
+    }
+    int j = 0;
+
+
+    printf("GC??\n");
+    if (!bgq_is_empty(GC)) {
+    printf("GC!!\n");
+      for (j = 0; j < HOT_BATCH; j++) {
+        struct slab_callback *cb;
+        char *item =(char *)bgq_dequeue(GC);
+
+        if (!item) goto fsst_sleep;
+
+        cb = malloc(sizeof(*cb));
+        /*cb->cb = add_in_tree_for_update;*/
+        cb->cb = NULL;
+        cb->cb_cb = NULL;
+        cb->payload = NULL;
+        cb->fsst_slab = NULL;
+        cb->fsst_idx = -1;
+        cb->item = item;
+        /*printf("cbitem %p\n", cb->item);*/
+        kv_update_async(cb);
+      }
     }
 
   fsst_sleep:
@@ -416,7 +445,7 @@ static tree_entry_t *get_victim_centnode(void) {
 
   if (q->count == 0) return NULL;
 
-  n = bgq_front_node(GC);
+  n = (centree_node)bgq_front_node(GC);
   while (n && n->value.slab->min == -1) {
     n = dequeue_specific_node(q, n);
   }
@@ -595,7 +624,7 @@ static void *gc_async_worker(void *pdata) {
       centree_node n;
       tnt_get_nodes_at_level(gtx->level++, q);
       printf("level %d\n", gtx->level);
-      n = bgq_front_node(GC);
+      n = (centree_node)bgq_front_node(GC);
       do {
         if (n->value.slab->full == 0 || n->value.slab->min == -1)
           n = dequeue_specific_node(q, n);
