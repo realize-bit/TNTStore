@@ -52,7 +52,7 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   struct stat sb;
   char path[512];
   struct slab *s = calloc(1, sizeof(*s));
-  int cur_seq = -1;
+  uint64_t cur_seq = -1;
   int flag = O_RDWR | O_DIRECT;
 
   // not rebuild
@@ -127,11 +127,6 @@ struct slab *resize_slab(struct slab *s) {
     s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
   }
   return s;
-}
-
-static int show_rbtree(void *key, void *value) {
-  printf("key: %lu\n", (uint64_t)key);
-  return 0;
 }
 
 int rebuild_slabs(int filenum, struct dirent **file_list) {
@@ -356,7 +351,6 @@ void update_item_async_cb1(struct slab_callback *callback) {
   void *item = callback->item;
   struct item_metadata *meta = item;
   off_t offset_in_page = item_in_page_offset(s, idx);
-  struct item_metadata *old_meta = (void *)(&disk_page[offset_in_page]);
   struct slab_context *ctx = callback->ctx;
 
   meta->rdt = get_rdt(ctx);

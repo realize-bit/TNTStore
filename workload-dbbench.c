@@ -10,10 +10,10 @@ typedef struct {
 } KeyrangeUnit;
 
 static void *gen_exp;
-static int64_t keyrange_rand_max_ = 0;
-static int64_t keyrange_size_ = 0;
-static int64_t keyrange_num_ = 0;
-static KeyrangeUnit *keyrange_set_ = NULL;
+//static int64_t keyrange_rand_max_ = 0;
+//static int64_t keyrange_size_ = 0;
+//static int64_t keyrange_num_ = 0;
+//static KeyrangeUnit *keyrange_set_ = NULL;
 
 static void init_dbbench(struct workload *w, bench_t b) {
   switch (b) {
@@ -41,6 +41,7 @@ static char *create_unique_item_dbbench(uint64_t uid, uint64_t max_uid) {
 }
 
 /* Is the current request a get or a put? */
+/*
 static int random_get_put(int test) {
   long random = uniform_next() % 100;
   switch (test) {
@@ -55,6 +56,7 @@ static int random_get_put(int test) {
   }
   die("Not a valid test\n");
 }
+*/
 
 /* YCSB A (or D), B, C */
 static void _launch_dbbench(int total, int nb_requests, double dist_a,
@@ -62,7 +64,7 @@ static void _launch_dbbench(int total, int nb_requests, double dist_a,
                             double range_b, double range_c, double range_d) {
   declare_periodic_count;
   unsigned char prefix_model = 0, random_model = 0;
-  void *rand_var;
+  //void *rand_var;
 
   if (range_a != 0.0 || range_b != 0.0 || range_c != 0.0 || range_d != 0.0) {
     prefix_model = 1;

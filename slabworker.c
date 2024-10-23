@@ -484,7 +484,6 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   struct item_metadata *meta = item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
-  int already = 0;
 
   if (meta->key_size == 0)
     return 0;
@@ -886,7 +885,6 @@ size_t get_database_size(void) {
 }
 
 void flush_batched_load(void) {
-  int seq = 0;
   tree_entry_t *victim = NULL;
   struct slab *s = NULL;
   do {

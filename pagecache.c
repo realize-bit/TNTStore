@@ -120,10 +120,10 @@ int get_page(struct pagecache *p, uint64_t hash, void **page,
   return 0;
 }
 
-static uint64_t extract_page_num_from_hash(uint64_t hash) {
-  uint64_t mask = (1ULL << 40) - 1;  // Create a mask for the lower 40 bits
-  return hash & mask;                // Extract the lower 40 bits
-}
+//static uint64_t extract_page_num_from_hash(uint64_t hash) {
+//  uint64_t mask = (1ULL << 40) - 1;  // Create a mask for the lower 40 bits
+//  return hash & mask;                // Extract the lower 40 bits
+//}
 
 int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
                        struct lru **lru, struct slab *s) {
@@ -131,7 +131,7 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
   struct lru *lru_entry;
   maybe_unused pagecache_entry_t tmp_entry;
   maybe_unused pagecache_entry_t *old_entry = NULL;
-  uint64_t page_num = extract_page_num_from_hash(hash);
+  //uint64_t page_num = extract_page_num_from_hash(hash);
 
   // Is the page already cached?
   pagecache_entry_t *e = tree_lookup(p->hash_to_page, hash);

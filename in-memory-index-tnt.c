@@ -26,7 +26,6 @@ int bgq_is_empty(enum fsst_mode m) {
   background_queue *queue = m == GC ? gc_queue : fsst_queue;
   pthread_lock_t *lock = m == GC ? &gc_lock : &fsst_lock;
   int count;
-  int ret;
   R_LOCK(lock);
   count = queue->count;
   R_UNLOCK(lock);

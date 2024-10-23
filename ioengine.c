@@ -165,11 +165,6 @@ static uint64_t get_hash_for_page(int fd, uint64_t page_num) {
   return (((uint64_t)fd) << 40LU) + page_num;  // Works for files less than 40EB
 }
 
-static uint64_t get_hash_for_file(int fd) {
-  return (((uint64_t)fd) << 40LU) +
-         ((uint64_t)1 << 39LU);  // Works for files less than 40EB
-}
-
 char *no_read_page_async(struct slab_callback *callback) {
   int alread_used;
   struct lru *lru_entry;
@@ -213,9 +208,8 @@ char *read_page_async(struct slab_callback *callback) {
                                    &disk_page, &lru_entry, callback->slab);
   callback->lru_entry = lru_entry;
   if (lru_entry->contains_data) {  // content is cached already
-    struct slab *s = callback->slab;
-    __sync_add_and_fetch(&cache_hit, 1);
 #if WITH_HOT
+    struct slab *s = callback->slab;
     if (callback->lru_entry->hot_page_checked == 2 
       && !tnt_centree_node_is_child(s->centree_node)
       && s->hot_pages < (s->nb_items/40)) {
@@ -229,6 +223,7 @@ char *read_page_async(struct slab_callback *callback) {
       bgq_enqueue(GC, item);
     }
 #endif
+    __sync_add_and_fetch(&cache_hit, 1);
     callback->io_cb(callback);  // call the callback directly
     return disk_page;
   }
@@ -360,9 +355,9 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
     for (size_t i = 0; i < ret; i++) {
       struct iocb *cb = (void *)ctx->events[i].obj;
       struct slab_callback *callback = (void *)cb->aio_data;
-      char *item;
 #if WITH_HOT
       struct slab *s;
+      char *item;
 #endif
       if (ctx->events[i].res != 4096) {
         printf("ret: %llu, Seq: %lu, key: %lu\n", ctx->events[i].res,

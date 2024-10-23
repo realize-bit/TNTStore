@@ -48,6 +48,7 @@ int tnt_index_invalid(void *item);
 
 struct index_scan tnt_scan(void *item, uint64_t size);
 void tnt_print(void);
+void inc_empty_tree();
 
 background_queue *bgq_get(enum fsst_mode m);
 int bgq_is_empty(enum fsst_mode m);

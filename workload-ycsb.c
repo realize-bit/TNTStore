@@ -50,45 +50,18 @@ static void _launch_ycsb(int test, int nb_requests, int zipfian) {
   }
 }
 
-static int compare(const void *a, const void *b) {
-  index_entry_t *x = (index_entry_t *)a, *y = (index_entry_t *)b;
-
-  /* if ->num not equal, sort by ->num */
-  if (x->slab->fd != y->slab->fd)
-    return (x->slab->fd > y->slab->fd) - (x->slab->fd < y->slab->fd);
-
-  /* otherwise, sort by val */
-  return (x->slab_idx > y->slab_idx) - (x->slab_idx < y->slab_idx);
-}
 /* YCSB E */
 static void _launch_ycsb_e(int test, int nb_requests, int zipfian) {
   declare_periodic_count;
   random_gen_t rand_next = zipfian ? zipf_next : uniform_next;
-  /*
-  for(size_t i = 0; i < nb_requests; i++) {
-     if(random_get_put(test)) { // In this test we update with a given
-  probability struct slab_callback *cb = bench_cb(); cb->item =
-  _create_unique_item_ycsb(rand_next()); kv_update_async(cb); } else {  // or we
-  scan char *item = _create_unique_item_ycsb(rand_next()); tree_scan_res_t
-  scan_res = kv_init_scan(item, uniform_next()%99+1); free(item); for(size_t j =
-  0; j < scan_res.nb_entries; j++) { struct slab_callback *cb = bench_cb();
-           cb->item = _create_unique_item_ycsb(scan_res.hashes[j]);
-           kv_read_async_no_lookup(cb, scan_res.entries[j].slab,
-  scan_res.entries[j].slab_idx);
-        }
-        free(scan_res.hashes);
-        free(scan_res.entries);
-     }
-     periodic_count(1000, "YCSB Load Injector (scans) (%lu%%)",
-  i*100LU/nb_requests);
-  }
- */
-
+  int total_lookup = 0, total_update = 0;
+ 
   for (size_t i = 0; i < nb_requests; i++) {
     if (random_get_put(
             test)) {  // In this test we update with a given probability
       struct slab_callback *cb = bench_cb();
       cb->item = _create_unique_item_ycsb(rand_next());
+      total_update++;
       kv_update_async(cb);
     } else {  // or we scan
       uint64_t start_key = rand_next();
@@ -97,12 +70,14 @@ static void _launch_ycsb_e(int test, int nb_requests, int zipfian) {
       for (size_t j = 0; j < scan_size; j++) {
         struct slab_callback *cb = bench_cb();
         cb->item = _create_unique_item_ycsb(start_key+j);
+        total_lookup++;
         kv_read_async(cb);
       }
     }
     periodic_count(1000, "YCSB Load Injector (scans) (%lu%%)",
                    i * 100LU / nb_requests);
   }
+  printf("YCSB E: %d updates, %d lookups\n", total_update, total_lookup);
 }
 
 /* Generic interface */

@@ -26,5 +26,5 @@ int filter_contain(filter_t *f, unsigned char *k) {
   return 0;
 }
 
-void filter_delete(filter_t *f) { delete (f); }
+void filter_delete(filter_t *f) { delete ((CuckooFilter<size_t, 12> *)f); }
 }
