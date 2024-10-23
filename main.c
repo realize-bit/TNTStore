@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
                         // ycsb_a_uniform,
                         // ycsb_c_uniform,
                         // ycsb_a_zipfian,
-                        ycsb_c_uniform,
+                        ycsb_e_zipfian,
                         // dbbench_prefix_dist,
                     };
 
@@ -117,7 +117,6 @@ int main(int argc, char **argv) {
       w.nb_requests = 100000000LU;
       // w.nb_requests = 420000000LU;
     }
-    w.nb_requests = 100000000LU;
     run_workload(&w, workload);
     printf("lookup hit: %d\n", cache_hit);
     printf("try_fsst: %d\n", try_fsst);
