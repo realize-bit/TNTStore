@@ -71,10 +71,16 @@ int main(int argc, char **argv) {
   repopulate_db(&w);
   load = 0;
 
-  flush_batched_load();
+  start_timer {
+    flush_batched_load();
+  }
+  stop_timer("Remaining batch loading");
 
 #if WITH_RC
-  sleep_until_fsstq_empty();
+  start_timer {
+    sleep_until_fsstq_empty();
+  }
+  stop_timer("Remaining RC operations");
 #endif
 
   // flush_batched_load();
