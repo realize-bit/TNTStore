@@ -10,6 +10,7 @@ typedef struct {
 } KeyrangeUnit;
 
 static void *gen_exp;
+static void *query;
 //static int64_t keyrange_rand_max_ = 0;
 //static int64_t keyrange_size_ = 0;
 //static int64_t keyrange_num_ = 0;
@@ -21,6 +22,7 @@ static void init_dbbench(struct workload *w, bench_t b) {
     case dbbench_prefix_dist:
       gen_exp = init_exp_prefix(w->nb_items_in_db, 30, 14.18, -2.917, 0.0164,
                                 -0.08082);
+      query = init_query(0.83, 0.14, 0.03);
       init_rand();
       return;
     case dbbench_all_random:
@@ -40,31 +42,16 @@ static char *create_unique_item_dbbench(uint64_t uid, uint64_t max_uid) {
   return _create_unique_item_dbbench(uid);
 }
 
-/* Is the current request a get or a put? */
-/*
-static int random_get_put(int test) {
-  long random = uniform_next() % 100;
-  switch (test) {
-    case 0:  // A
-      return random >= 50;
-    case 1:  // B
-      return random >= 95;
-    case 2:  // C
-      return 0;
-    case 3:  // E
-      return random >= 95;
-  }
-  die("Not a valid test\n");
-}
-*/
-
-/* YCSB A (or D), B, C */
 static void _launch_dbbench(int total, int nb_requests, double dist_a,
                             double dist_b, int range_num, double range_a,
                             double range_b, double range_c, double range_d) {
   declare_periodic_count;
   unsigned char prefix_model = 0, random_model = 0;
+  int query_type;
   //void *rand_var;
+  int query_count_get = 0;
+  int query_count_put = 0;
+  int query_count_scan = 0;
 
   if (range_a != 0.0 || range_b != 0.0 || range_c != 0.0 || range_d != 0.0) {
     prefix_model = 1;
@@ -76,7 +63,6 @@ static void _launch_dbbench(int total, int nb_requests, double dist_a,
   for (size_t i = 0; i < nb_requests; i++) {
     uint64_t ini_rand, rand_v, key_rand, key_seed;
     double u;
-    struct slab_callback *cb = bench_cb();
 
     // ini_rand = GetRandomKey(rand_var, total);
     ini_rand = rand_next() % total;
@@ -92,18 +78,36 @@ static void _launch_dbbench(int total, int nb_requests, double dist_a,
     }
     // printf("KEY %ld\n", key_rand);
 
-    cb->item = _create_unique_item_dbbench(key_rand);
+    query_type = query_get_type(query, rand_v);
 
-    // if(random_get_put(test)) { // In these tests we update with a given
-    // probability
-    //    kv_update_async(cb);
-    // } else { // or we read
-    //    kv_read_async(cb);
-    // }
-    kv_read_async(cb);
+    
+    if (query_type == 0) {
+      struct slab_callback *cb = bench_cb();
+      cb->item = _create_unique_item_dbbench(key_rand);
+      query_count_get++;
+      kv_read_async(cb);
+    } else if (query_type == 1) {
+      struct slab_callback *cb = bench_cb();
+      cb->item = _create_unique_item_dbbench(key_rand);
+      query_count_put++;
+      kv_update_async(cb);
+    } else if (query_type == 2) {
+      int scan_len_max = 10000;
+      int64_t scan_length =
+        ParetoCdfInversion(u, 0.0, 2.517,
+                           14.236) % scan_len_max;
+      /*std::cout << "scan len: " << scan_length << "\n";*/
+      for (size_t j = 0; j < scan_length; j++) {
+        struct slab_callback *cb = bench_cb();
+        cb->item = _create_unique_item_dbbench(key_rand+j);
+        kv_read_async(cb);
+      }
+      query_count_scan++;
+    }
     periodic_count(1000, "DB_BENCH Load Injector (%lu%%)",
                    i * 100LU / nb_requests);
   }
+  printf("DB_BENCH: %d updates, %d lookups, %d scans\n", query_count_put, query_count_get, query_count_scan);
 }
 
 /* Generic interface */

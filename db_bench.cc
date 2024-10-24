@@ -42,6 +42,47 @@ class Random64 {
   }
 };
 
+// Decide the ratio of different query types
+  // 0 Get, 1 Put, 2 Seek, 3 SeekForPrev, 4 Delete, 5 SingleDelete, 6 merge
+  class QueryDecider {
+   public:
+    std::vector<int> type_;
+    std::vector<double> ratio_;
+    int range_;
+
+    QueryDecider() = default;
+    ~QueryDecider() = default;
+
+    int Initiate(std::vector<double> ratio_input) {
+      int range_max = 1000;
+      double sum = 0.0;
+      for (auto& ratio : ratio_input) {
+        sum += ratio;
+      }
+      range_ = 0;
+      for (auto& ratio : ratio_input) {
+        range_ += static_cast<int>(ceil(range_max * (ratio / sum)));
+        type_.push_back(range_);
+        ratio_.push_back(ratio / sum);
+      }
+      return 0;
+    }
+
+    int GetType(int64_t rand_num) {
+      if (rand_num < 0) {
+        rand_num = rand_num * (-1);
+      }
+      assert(range_ != 0);
+      int pos = static_cast<int>(rand_num % range_);
+      for (int i = 0; i < static_cast<int>(type_.size()); i++) {
+        if (pos < type_[i]) {
+          return i;
+        }
+      }
+      return 0;
+    }
+  };
+
 // From our observations, the prefix hotness (key-range hotness) follows
 // the two-term-exponential distribution: f(x) = a*exp(b*x) + c*exp(d*x).
 // However, we cannot directly use the inverse function to decide a
@@ -206,6 +247,17 @@ void *init_exp_prefix(int64_t total_keys, int range_num, double prefix_a,
   // return;
 }
 
+void *init_query(double mix_get_ratio, double mix_put_ratio, double mix_scan_ratio) {
+  QueryDecider *query = new QueryDecider();
+  std::vector<double> ratio{mix_get_ratio, mix_put_ratio, mix_scan_ratio};
+  query->Initiate(ratio);
+  return query;
+}
+
+int query_get_type(void *query, int64_t rand_num) {
+  return static_cast<QueryDecider *>(query)->GetType(rand_num);
+}
+
 int64_t prefix_get_key(void *gen_exp, int64_t ini_rand, double key_dist_a,
                        double key_dist_b) {
   return static_cast<GenerateTwoTermExpKeys *>(gen_exp)->DistGetKeyID(
@@ -232,6 +284,16 @@ int64_t GetRandomKey(void *r, int64_t num) {
     key_rand = static_cast<int64_t>((rand_num * kBigPrime) % num);
   }
   return key_rand;
+}
+
+int64_t ParetoCdfInversion(double u, double theta, double k, double sigma) {
+  double ret;
+  if (k == 0.0) {
+    ret = theta - sigma * std::log(u);
+  } else {
+    ret = theta + sigma * (std::pow(u, -1 * k) - 1) / k;
+  }
+  return static_cast<int64_t>(ceil(ret));
 }
 
 int64_t PowerCdfInversion(double u, double a, double b) {
