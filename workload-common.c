@@ -63,7 +63,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
 
-  s->update_ref--;
+  __sync_fetch_and_sub(&s->update_ref, 1);
 
   if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
       !((centree_node)s->centree_node)->removed) {

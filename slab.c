@@ -339,6 +339,10 @@ void update_item_async_cb2(struct slab_callback *callback) {
     die("DIFF key1: %lu, key2: %lu, key/idx: %lu/%lu\n", key, key2,
         callback->slab->seq, callback->slab_idx);
 
+  if(callback->cb != add_in_tree_for_update 
+    && callback->cb != add_in_tree)
+    __sync_fetch_and_sub(&callback->slab->update_ref, 1);
+
   if (callback->cb) callback->cb(callback, &disk_page[in_page_offset]);
   if (cbcb) callback->cb_cb(callback, &disk_page[in_page_offset]);
 }
@@ -461,31 +465,75 @@ void add_item_async(struct slab_callback *callback) {
 void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
   struct slab *old_s = cb->fsst_slab;
+  uint64_t old_idx = cb->fsst_idx;
   unsigned char enqueue = 0;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   int removed = 0, alrdy = 0;
   uint64_t cur;
+  index_entry_t *e = NULL;
 
-  R_LOCK(&old_s->tree_lock);
-  if (old_s->min != -1)
-    removed = tnt_index_invalid_utree(old_s->subtree, cb->item);
-  R_UNLOCK(&old_s->tree_lock);
+  while(!removed) {
 
-  if (!removed) {
-    // 동시에 수정하는 누군가가 자기가 지워야 하는 것을 이미 지운 것.
-    //  그 친구가 새로 추가한 것을 지워야함
-    removed = tnt_index_invalid(cb->item);
-    if (!removed)
-      printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key,
-             cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
-  } else {
-    __sync_fetch_and_sub(&old_s->nb_items, 1);
+    R_LOCK(&old_s->tree_lock);
+    if (old_s == s) {
+      R_UNLOCK(&old_s->tree_lock);
+      // 이미 최신게 들어있으므로 업데이트 안함
+      // 두 케이스 다 원래 두 자리 잡아놨는데 하나만 유효하므로 하나 뺌
+      __sync_fetch_and_sub(&s->nb_items, 1);
+      if (old_idx > cb->slab_idx) {
+        //printf("UPCASE: 1\n");
+        goto skip;
+      }
+      // s에 delete 후 add
+      //printf("UPCASE: 2\n");
+      break;
+    } else if (old_s->seq > s->seq) {
+      // 이미 최신게 들어있으므로 업데이트 안함
+      //printf("UPCASE: 3\n");
+      __sync_fetch_and_sub(&s->nb_items, 1);
+      goto skip;
+    }
+  
+    if (old_s->min != -1)
+      removed = tnt_index_invalid_utree(old_s->subtree, cb->item);
+    R_UNLOCK(&old_s->tree_lock);
+
+    if (!removed) {
+      do {
+        e = tnt_index_lookup(cb->item);
+      } while(e->slab == old_s);
+
+      old_s = e->slab;
+      old_idx = e->slab_idx;
+      // 동시에 수정하는 누군가가 자기가 지워야 하는 것을 이미 지운 것.
+      //  그 친구가 새로 추가한 것을 지워야함
+      //removed = tnt_index_invalid(cb->item);
+      //if (!removed)
+      //  printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key,
+      //         cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+      //printf("UPCASE: RETRY\n");
+    } else {
+      //printf("UPCASE: 5\n");
+      __sync_fetch_and_sub(&old_s->nb_items, 1);
+    }
   }
 
   W_LOCK(&s->tree_lock);
-  alrdy = tnt_index_delete(cb->slab->subtree, item);
+    // CASE 2에서 여러 쓰레드가 여기 도달 가능.
+    // 두 쓰레드들 중 가장 최신의 애가 먼저 lock 잡고 추가했다면
+    // 그 다음 쓰레드는 스킵해야함.
+  e = tnt_index_lookup_utree(s->subtree, item);
+  if (e) {
+    if (e->slab_idx > cb->slab_idx) {
+      //printf("UPCASE: Final Skip\n");
+
+      W_UNLOCK(&s->tree_lock);
+      goto skip;
+    } 
+    alrdy = tnt_index_delete(s->subtree, item);
+  }
   tnt_index_add(cb, item);
 
   if (!alrdy) {
@@ -505,7 +553,12 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
 
-  s->update_ref--;
+  W_UNLOCK(&s->tree_lock);
+
+skip:
+  __sync_fetch_and_sub(&s->update_ref, 1);
+
+  R_LOCK(&s->tree_lock);
 
   if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
       !((centree_node)s->centree_node)->removed) {
@@ -529,8 +582,8 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
     //unlink(spath);
     //printf("REMOVED FILE\n");
   }
+  R_UNLOCK(&s->tree_lock);
 
-  W_UNLOCK(&s->tree_lock);
 
 #if WITH_RC
   if (enqueue) bgq_enqueue(FSST, s->centree_node);
@@ -545,8 +598,9 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
 void remove_and_add_item_async(struct slab_callback *callback) {
   callback->io_cb = add_item_async_cb1;
   if (callback->slab_idx != -1) {
-    if (!callback->cb)  // making fsst by using cb_cb
+    if (!callback->cb){  // making fsst by using cb_cb
       callback->cb = add_in_tree_for_update;
+    }
     else {
       callback->cb_cb = callback->cb;  // computes_stat
       callback->cb = add_in_tree_for_update;
