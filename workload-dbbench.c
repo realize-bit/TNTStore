@@ -33,7 +33,7 @@ static void init_dbbench(struct workload *w, bench_t b) {
 }
 
 static char *_create_unique_item_dbbench(uint64_t uid) {
-  size_t item_size = 1024;
+  size_t item_size = KV_SIZE;
   // size_t item_size = sizeof(struct item_metadata) + 2*sizeof(size_t);
   return create_unique_item(item_size, uid);
 }

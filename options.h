@@ -55,4 +55,8 @@
 #define GC_START_TRSHLD 0.9
 #define GC_END_TRSHLD 0.75
 
+#define KV_SIZE 64
+#define MAX_FILE_SIZE 8192 * PAGE_SIZE
+
+
 #endif

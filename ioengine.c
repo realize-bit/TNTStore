@@ -215,11 +215,11 @@ char *read_page_async(struct slab_callback *callback) {
       && s->hot_pages < (s->nb_items/40)) {
       char *item;
       char *disk_page = callback->lru_entry->page;
-      size_t items_per_page = PAGE_SIZE / 1024;
+      size_t items_per_page = PAGE_SIZE / KV_SIZE;
       off_t in_page_offset =
-        (callback->slab_idx % items_per_page) * 1024;
-      item = malloc(1024);
-      memcpy(item, &disk_page[in_page_offset], 1024);
+        (callback->slab_idx % items_per_page) * KV_SIZE;
+      item = malloc(KV_SIZE);
+      memcpy(item, &disk_page[in_page_offset], KV_SIZE);
       bgq_enqueue(GC, item);
     }
 #endif
@@ -372,12 +372,12 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       && !tnt_centree_node_is_child(s->centree_node)
       && s->hot_pages < (s->nb_items/40)) {
         char *disk_page = callback->lru_entry->page;
-        size_t items_per_page = PAGE_SIZE / 1024;
+        size_t items_per_page = PAGE_SIZE / KV_SIZE;
         off_t in_page_offset =
-          (callback->slab_idx % items_per_page) * 1024;
+          (callback->slab_idx % items_per_page) * KV_SIZE;
 
-        item = malloc(1024);
-        memcpy(item, &disk_page[in_page_offset], 1024);
+        item = malloc(KV_SIZE);
+        memcpy(item, &disk_page[in_page_offset], KV_SIZE);
         //printf("HOT EnQ1: %lu\n", s->seq);
         bgq_enqueue(GC, item);
       }

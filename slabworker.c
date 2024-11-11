@@ -131,8 +131,8 @@ struct slab_context *get_slab_context(void *item) {
   return &slab_contexts[(hash) % get_nb_distributors()];
 }
 
-struct slab_context *get_slab_context_uidx(uint64_t idx) {
-  return &slab_contexts[((idx / 4) % get_nb_workers()) + get_nb_distributors()];
+struct slab_context *get_slab_context_uidx(uint64_t items_per_page, uint64_t idx) {
+  return &slab_contexts[((idx / items_per_page) % get_nb_workers()) + get_nb_distributors()];
 }
 
 size_t get_item_size(char *item) {
@@ -191,7 +191,7 @@ void kv_read_async(struct slab_callback *callback) {
 
 void kv_read_async_no_lookup(struct slab_callback *callback, struct slab *s,
                              size_t slab_idx, size_t count) {
-  struct slab_context *ctx = get_slab_context_uidx(slab_idx);
+  struct slab_context *ctx = get_slab_context_uidx((PAGE_SIZE/s->item_size), slab_idx);
   // struct slab_context *ctx = get_slab_context(callback->item);
   callback->ctx = ctx;
   callback->slab = s;
@@ -225,7 +225,7 @@ void kv_remove_async(struct slab_callback *callback) {
 
 void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s,
                             size_t slab_idx) {
-  struct slab_context *ctx = get_slab_context_uidx(slab_idx);
+  struct slab_context *ctx = get_slab_context_uidx((PAGE_SIZE/s->item_size), slab_idx);
   callback->ctx = ctx;
   callback->slab = s;
   callback->slab_idx = slab_idx;
@@ -234,7 +234,7 @@ void kv_add_async_no_lookup(struct slab_callback *callback, struct slab *s,
 
 void kv_update_async_no_lookup(struct slab_callback *callback, struct slab *s,
                                size_t slab_idx) {
-  struct slab_context *ctx = get_slab_context_uidx(slab_idx);
+  struct slab_context *ctx = get_slab_context_uidx((PAGE_SIZE/s->item_size), slab_idx);
   callback->ctx = ctx;
   callback->slab = s;
   callback->slab_idx = slab_idx;
@@ -242,7 +242,7 @@ void kv_update_async_no_lookup(struct slab_callback *callback, struct slab *s,
 }
 void kv_fsst_async_no_lookup(struct slab_callback *callback, struct slab *s,
                              size_t slab_idx) {
-  struct slab_context *ctx = get_slab_context_uidx(slab_idx);
+  struct slab_context *ctx = get_slab_context_uidx((PAGE_SIZE/s->item_size), slab_idx);
   callback->ctx = ctx;
   callback->slab = s;
   callback->slab_idx = slab_idx;
@@ -614,8 +614,8 @@ void invalid_indexes(struct slab **sa, int snum, uint64_t *keys) {
   struct slab *s;
   int nks, nkeys;
   tree_entry_t *e;
-  uint64_t *ks = malloc(65536 * sizeof(uint64_t));
-  char *item = create_unique_item(1024, 0);
+  uint64_t *ks = malloc((MAX_FILE_SIZE/KV_SIZE) * sizeof(uint64_t));
+  char *item = create_unique_item(KV_SIZE, 0);
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
 

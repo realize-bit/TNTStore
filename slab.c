@@ -74,17 +74,17 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
 
   fstat(s->fd, &sb);
   s->size_on_disk = sb.st_size;
-  if (!rebuild && s->size_on_disk < 16384 * PAGE_SIZE) {
-    fallocate(s->fd, 0, 0, 16384 * PAGE_SIZE);
-    s->size_on_disk = 16384 * PAGE_SIZE;
+  if (!rebuild && s->size_on_disk < MAX_FILE_SIZE) {
+    fallocate(s->fd, 0, 0, MAX_FILE_SIZE);
+    s->size_on_disk = MAX_FILE_SIZE;
   }
 
 
-  size_t nb_items_per_page = PAGE_SIZE / 1024;
+  size_t nb_items_per_page = PAGE_SIZE / KV_SIZE;
   s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
   // TODO::JS::구조체 수정
   s->nb_items = 0;
-  s->item_size = 1024;
+  s->item_size = KV_SIZE;
   s->last_item = 0;
   s->ctx = ctx;
 
@@ -278,7 +278,9 @@ void read_item_async_cb(struct slab_callback *callback) {
   cur = __sync_sub_and_fetch(&s->read_ref, 1);
 
   R_LOCK(&s->tree_lock);
-  if (s->min == -1 && cur == 0 && s->update_ref == 0) {
+  if (s->min == -1 && 
+    !__sync_fetch_and_or(&s->update_ref, 0)
+    && cur == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);
@@ -366,7 +368,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
     memcpy(&disk_page[offset_in_page], item, get_item_size(item));
 
 #if DEBUG
-    /*
+  /*
     char *item_key = &callback->item[sizeof(*meta)];
     uint64_t key = *(uint64_t*)item_key;
     off_t in_page_offset = item_in_page_offset(callback->slab,
@@ -378,7 +380,7 @@ void update_item_async_cb1(struct slab_callback *callback) {
     uint64_t key2 = *(uint64_t*)item_key2;
     if (key != key2)
      printf("DIFFFF key1: %lu, key2: %lu, %lu/%lu\n", key, key2, s->seq, idx);
-    */
+     */
 #endif
 
   callback->io_cb = update_item_async_cb2;
@@ -560,15 +562,19 @@ skip:
 
   R_LOCK(&s->tree_lock);
 
-  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
+  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && 
+    !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
+    printf("ENQUEU: %lu, %lu\n", s->seq, s->update_ref);
   }
 
   cur = __sync_fetch_and_add(&s->read_ref, 0);
 
-  if (s->min == -1 && s->update_ref == 0 && cur == 0) {
+  if (s->min == -1 && 
+    __sync_fetch_and_or(&s->update_ref, 0) == 0 
+    && cur == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);

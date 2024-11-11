@@ -30,7 +30,7 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
 
   printf("RM %lu\n", s->seq);
 
-  if (s->update_ref == 0 && s->read_ref == 0) {
+  if (__sync_fetch_and_or(&s->update_ref, 0) == 0 && s->read_ref == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);
@@ -84,7 +84,7 @@ tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
 #define HOT_BATCH 16384
 
 static void *fsst_worker(void *pdata) {
-  vict_file_fsst = aligned_alloc(PAGE_SIZE, 16384 * PAGE_SIZE);
+  vict_file_fsst = aligned_alloc(PAGE_SIZE, MAX_FILE_SIZE);
 
   if (!vict_file_fsst) die("FSST Static Buf Error\n");
 

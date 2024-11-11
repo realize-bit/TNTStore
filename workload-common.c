@@ -65,8 +65,9 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   __sync_fetch_and_sub(&s->update_ref, 1);
 
-  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && !s->update_ref &&
-      !((centree_node)s->centree_node)->removed) {
+  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && 
+    !__sync_fetch_and_or(&s->update_ref, 0) &&
+    !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
   }
@@ -75,7 +76,9 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   cur = __sync_fetch_and_add(&s->read_ref, 0);
   //희박하지만 초기에 get_slab으로 꽉 차자마자 GC 대상이 되었을 수 있다
-  if (s->min == -1 && s->update_ref == 0 && cur == 0) {
+  if (s->min == -1 && 
+    !__sync_fetch_and_or(&s->update_ref, 0)
+    && cur == 0) {
     char path[128], spath[128];
     int len;
     sprintf(path, "/proc/self/fd/%d", s->fd);

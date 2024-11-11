@@ -42,7 +42,7 @@ size_t get_item_size(char *item);
 struct slab_context *get_slab_context(void *item);
 
 void increase_processed(struct slab_context *ctx);
-struct slab_context *get_slab_context_uidx(uint64_t idx);
+struct slab_context *get_slab_context_uidx(uint64_t items_per_page, uint64_t idx);
 int get_worker_ucb(struct slab_callback *cb);
 void flush_batched_load(void);
 #endif
