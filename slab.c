@@ -214,7 +214,8 @@ struct slab *close_and_create_slab(struct slab *s) {
 
   // TODO::JS:: add_in_tree 쪽으로 옮겨야함
   R_LOCK(&s->tree_lock);
-  new_key = (s->min + s->max) / 2;
+  //new_key = (s->min + s->max) / 2;
+  new_key = s->min + (s->max - s->min) / 2;
   new_level = tnt_get_centree_level(s->centree_node)+1;
   R_UNLOCK(&s->tree_lock);
 
@@ -249,6 +250,7 @@ struct slab *close_and_create_slab(struct slab *s) {
                   NULL, new_key + 1);
 #endif
 
+  //tnt_print();
   return s;
 }
 

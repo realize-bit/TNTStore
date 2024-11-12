@@ -343,6 +343,8 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
     }
     R_UNLOCK(&s->tree_lock);
     prev = n;
+    int cur_nb_elements = 
+      __sync_fetch_and_or(&t->nb_elements, 0);
     do {
       R_LOCK(&s->tree_lock);
       comp_result = tnt_pointer_cmp((void *)key, prev->key);
@@ -354,10 +356,10 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
       }
       R_UNLOCK(&s->tree_lock);
       if (!n) {
-        int cur_nb_elements = t->nb_elements;
         R_UNLOCK(&centree_root_lock);
         while (1) {
-          if (cur_nb_elements >= t->nb_elements) {  // Queue is full, wait
+          if (cur_nb_elements >= 
+            __sync_fetch_and_or(&t->nb_elements, 0)) {  // Queue is full, wait
             NOP10();
             if (!PINNING) usleep(2);
           } else {

@@ -57,6 +57,16 @@ int main(int argc, char **argv) {
   }
   stop_timer("Initializing random number generator (Zipf)");
 
+#ifdef REALKEY_FILE_PATH
+  start_timer {
+    printf(
+      "Loading real world keys from file -- this might take a while for large key sets...\n");
+    load_real_keys(w.nb_items_in_db); // OSM 파일에서 키를 불러옵니다.
+  }
+  stop_timer("Loading keys from real world file");
+#endif
+
+
   /* Recover database */
   start_timer {
     slab_workers_init(nb_disks, nb_workers_per_disk, nb_distributors_per_disk);
@@ -102,7 +112,7 @@ int main(int argc, char **argv) {
                         // ycsb_a_uniform,
                         // ycsb_c_uniform,
                         // ycsb_a_zipfian,
-                        ycsb_e_zipfian,
+                        ycsb_c_zipfian,
                         // dbbench_prefix_dist,
                     };
 

@@ -33,6 +33,9 @@ static void init_dbbench(struct workload *w, bench_t b) {
 }
 
 static char *_create_unique_item_dbbench(uint64_t uid) {
+#ifdef REALKEY_FILE_PATH
+  uid = get_real_key(uid);
+#endif
   size_t item_size = KV_SIZE;
   // size_t item_size = sizeof(struct item_metadata) + 2*sizeof(size_t);
   return create_unique_item(item_size, uid);

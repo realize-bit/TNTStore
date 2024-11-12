@@ -15,4 +15,9 @@ long production_random1(void);  // production workload simulator
 long production_random2(void);  // production workload simulator
 
 const char *get_function_name(random_gen_t f);
+
+#ifdef REALKEY_FILE_PATH
+void load_real_keys(uint64_t nb_items_in_db);
+uint64_t get_real_key(size_t position);
+#endif
 #endif

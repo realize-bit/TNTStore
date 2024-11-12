@@ -38,6 +38,44 @@ unsigned long locxorshf96(void) {  // period 2^96-1
 static unsigned int __thread seed;
 void init_seed(void) { seed = rand(); }
 
+#ifdef REALKEY_FILE_PATH
+static uint64_t *real_keys = NULL;
+static uint64_t realkey_size;
+
+// real 파일을 읽어 키 배열을 초기화하는 함수
+void load_real_keys(uint64_t nb_items_in_db) {
+  realkey_size = nb_items_in_db;
+  real_keys = malloc(realkey_size * sizeof(uint64_t));
+  if (!real_keys) {
+    perror("Failed to allocate memory for real keys");
+    exit(1);
+  }
+
+  FILE *file = fopen(REALKEY_FILE_PATH, "r");
+  if (!file) {
+    perror("Failed to open realkey file");
+    exit(1);
+  }
+
+  for (size_t i = 0; i < realkey_size; i++) {
+    if (fscanf(file, "%lu", &real_keys[i]) != 1) {
+      perror("Failed to read key from realkey file");
+      fclose(file);
+      exit(1);
+    }
+  }
+  fclose(file);
+}
+
+uint64_t get_real_key(size_t position) {
+  if (position >= realkey_size) {
+    fprintf(stderr, "Position %lu out of range\n", position);
+    exit(1);
+  }
+  return real_keys[position];
+}
+#endif
+
 /* zipf - from
  * https://bitbucket.org/theoanab/rocksdb-ycsb/src/master/util/zipf.h */
 static long items;              // initialized in init_zipf_generator function
