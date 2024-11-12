@@ -1,6 +1,7 @@
 #include "headers.h"
 
 extern uint64_t nb_totals;
+extern int rc_thr;
 /*
  * Create a workload item for the database
  */
@@ -65,7 +66,8 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   __sync_fetch_and_sub(&s->update_ref, 1);
 
-  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && 
+  //printf("level %lu, %d\n", ((centree_node)s->centree_node)->value.level, rc_thr);
+  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
     !((centree_node)s->centree_node)->removed) {
     enqueue = 1;

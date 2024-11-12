@@ -10,6 +10,7 @@
 extern int print;
 extern int load;
 extern uint64_t nb_totals;
+extern int rc_thr;
 
 /*
  * A slab is a file containing 1 or more items of a given size.
@@ -564,7 +565,7 @@ skip:
 
   R_LOCK(&s->tree_lock);
 
-  if ((s->max - s->min) > (s->nb_max_items * 10) && s->full && 
+  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
     enqueue = 1;

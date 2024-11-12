@@ -1,9 +1,11 @@
 #include "headers.h"
+#include <math.h>
 
 int print = 0;
 int load = 1;
 extern int cache_hit;
 extern int try_fsst;
+int rc_thr = 1;
 
 int main(int argc, char **argv) {
   int nb_disks, nb_workers_per_disk, nb_distributors_per_disk;
@@ -45,6 +47,9 @@ int main(int argc, char **argv) {
          PAGECACHE_INDEX);
   printf("# \tThread pinning: %s\n", PINNING ? "yes" : "no");
   printf("# \tBench: %s (%lu elements)\n", w.api->api_name(), w.nb_items_in_db);
+
+  rc_thr = log2((w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) )) * 0.7;
+  printf("RC THR: %d\n", rc_thr);
 
   /* Initialization of random library */
   start_timer {
