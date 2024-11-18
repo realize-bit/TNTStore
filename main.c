@@ -14,13 +14,10 @@ int main(int argc, char **argv) {
   /* Definition of the workload, if changed you need to erase the DB before
    * relaunching */
   struct workload w = {
-      .api = &YCSB,
-      // .api = &DBBENCH,
+      // .api = &YCSB,
+      .api = &DBBENCH,
       .nb_items_in_db = 100000000LU,
-      // .nb_items_in_db = 5000000LU,
       .nb_load_injectors = 4,
-      //.nb_load_injectors = 12, // For scans (see scripts/run-aws.sh and
-      //OVERVIEW.md)
   };
 
   /* Parsing of the options */
@@ -105,20 +102,7 @@ int main(int argc, char **argv) {
 
   /* Launch benchs */
   bench_t workload, workloads[] = {
-                        // ycsb_a_uniform, ycsb_b_uniform, ycsb_c_uniform,
-                        // ycsb_a_zipfian, ycsb_b_zipfian, ycsb_c_zipfian,
-                        // ycsb_e_uniform, ycsb_e_zipfian, // Scans
-                        // ycsb_a_uniform,
-                        // ycsb_a_zipfian,
-                        // ycsb_b_uniform,
-                        // ycsb_b_zipfian,
-                        // ycsb_c_uniform,
-                        // ycsb_c_zipfian,
-                        // ycsb_a_uniform,
-                        // ycsb_c_uniform,
-                        // ycsb_a_zipfian,
-                        ycsb_c_zipfian,
-                        // dbbench_prefix_dist,
+			SELECTED_BENCH,
                     };
 
   // sleep(5);
@@ -133,10 +117,9 @@ int main(int argc, char **argv) {
     } else if (workload == dbbench_all_random || workload == dbbench_all_dist ||
                workload == dbbench_prefix_random ||
                workload == dbbench_prefix_dist) {
-      w.nb_requests = 420000000LU;
+      w.nb_requests = 100000000LU;
     } else {
       w.nb_requests = 100000000LU;
-      // w.nb_requests = 420000000LU;
     }
     run_workload(&w, workload);
     printf("lookup hit: %d\n", cache_hit);

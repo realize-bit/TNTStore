@@ -5,6 +5,13 @@ CFLAGS=-O2 -ggdb3 -Wall
 CXX=clang++
 CXXFLAGS= ${CFLAGS} -std=c++11 -I/usr/local/include/cuckoofilter
 
+# 기본값 설정
+BENCH ?= ycsb_c_zipfian
+PAGE_CACHE_SIZE ?= "(PAGE_SIZE * 2097152)" # 기본 3GB 설정
+
+# 매크로 전달
+CFLAGS += -DSELECTED_BENCH=$(BENCH) -DSELECTED_PAGE_CACHE_SIZE=$(PAGE_CACHE_SIZE)
+
 LDLIBS=-lm -lpthread -lstdc++ 
 
 INDEXES_OBJ=indexes/rbtree.o indexes/btree.o indexes/filter.o indexes/tnt_centree.o indexes/tnt_subtree.o

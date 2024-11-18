@@ -197,7 +197,6 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
       if (comp_result <= 0) {
         if (n->left == NULL) {
           n->left = inserted_node;
-          __sync_fetch_and_add(&t->nb_elements, 1);
           break;
         } else {
           n = n->left;
@@ -206,7 +205,6 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
         assert(comp_result > 0);
         if (n->right == NULL) {
           n->right = inserted_node;
-          __sync_fetch_and_add(&t->nb_elements, 1);
           break;
         } else {
           n = n->right;

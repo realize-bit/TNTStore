@@ -249,6 +249,8 @@ struct slab *close_and_create_slab(struct slab *s) {
                   NULL, new_key - 1);
   tnt_subtree_add(create_slab(NULL, new_level, new_key + 1, 0, NULL), tnt_subtree_create(),
                   NULL, new_key + 1);
+  //__sync_fetch_and_add(&t->nb_elements, 2);
+  add_number_of_subtree(2);
 #endif
 
   //tnt_print();
@@ -570,7 +572,6 @@ skip:
       !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
-    printf("ENQUEU: %lu, %lu\n", s->seq, s->update_ref);
   }
 
   cur = __sync_fetch_and_add(&s->read_ref, 0);

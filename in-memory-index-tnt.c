@@ -494,103 +494,6 @@ index_entry_t *tnt_index_lookup(void *item) {
   return NULL;
 }
 
-// index_entry_t *tnt_index_lookup(void *item) {
-//    centree t = centree_root;
-//    struct item_metadata *meta = (struct item_metadata *)item;
-//    char *item_key = &item[sizeof(*meta)];
-//    uint64_t key = *(uint64_t*)item_key;
-//    centree_node n = t->root;
-//    index_entry_t *e = NULL, *tmp = NULL;
-//
-//    R_LOCK(&centree_root_lock);
-//    while (n != NULL) {
-//       struct slab *s = n->value.slab;
-//       int comp_result;
-//
-//       R_LOCK(&s->tree_lock);
-//       if (s->min != -1) {
-//         if (filter_contain(s->filter, (unsigned char *)&key)) {
-//          tmp = subtree_worker_lookup_utree(s->tree, item);
-//          if (tmp && !TEST_INVAL(tmp->slab_idx)) {
-//             e = tmp;
-//             R_UNLOCK(&s->tree_lock);
-//             break;
-//          }
-//         }
-//       }
-//       comp_result = tnt_pointer_cmp((void*)key, n->key);
-//       R_UNLOCK(&s->tree_lock);
-//
-//       if (comp_result <= 0) {
-//          n = n->left;
-//       } else {
-//          assert(comp_result > 0);
-//          n = n->right;
-//       }
-//    }
-//    R_UNLOCK(&centree_root_lock);
-//    if (e)
-//       return e;
-//    return NULL;
-// }
-
-tree_scan_res_t tnt_scan(void *item, uint64_t size) {
-  struct index_scan scan_res;
-  centree t = centree_root;
-
-  struct item_metadata *meta = (struct item_metadata *)item;
-  char *item_key = &item[sizeof(*meta)];
-  uint64_t root_key = *(uint64_t *)item_key;
-  int count = 0;
-
-  scan_res.entries = malloc(size * sizeof(*scan_res.entries));
-  scan_res.hashes = malloc(size * sizeof(*scan_res.hashes));
-  scan_res.nb_entries = 0;
-  // TODO::JS:: 나중에 BTREE의 스캔 구조를 이용하도록 수정
-  // 지금은 그냥 무조건 하나씩 찾음
-  R_LOCK(&centree_root_lock);
-  while (count < size) {
-    centree_node n = t->root;
-    index_entry_t *e = NULL, *tmp = NULL;
-    uint64_t key = root_key + count;
-    while (n != NULL) {
-      struct slab *s = n->value.slab;
-      int comp_result;
-      R_LOCK(&s->tree_lock);
-      if (s->min != -1) {
-#if WITH_FILTER
-        if (filter_contain(s->filter, (unsigned char *)&key)) {
-#endif
-          tmp = subtree_worker_lookup_ukey(s->subtree, key);
-          if (tmp) {
-            e = tmp;
-          }
-#if WITH_FILTER
-        }
-#endif
-      }
-      comp_result = tnt_pointer_cmp((void *)key, n->key);
-      R_UNLOCK(&s->tree_lock);
-
-      if (comp_result <= 0) {
-        n = n->left;
-      } else {
-        assert(comp_result > 0);
-        n = n->right;
-      }
-    }
-    R_UNLOCK(&centree_root_lock);
-
-    if (e) {
-      scan_res.entries[scan_res.nb_entries] = *e;
-      scan_res.hashes[scan_res.nb_entries] = key;
-      scan_res.nb_entries++;
-    }
-    count++;
-  }
-
-  return scan_res;
-}
 void tnt_index_add(struct slab_callback *cb, void *item) {
   index_entry_t new_entry;
   new_entry.slab = cb->slab;
@@ -664,6 +567,10 @@ void tnt_print(void) {
   R_LOCK(&centree_root_lock);
   centree_print(centree_root);
   R_UNLOCK(&centree_root_lock);
+}
+
+uint64_t add_number_of_subtree(uint64_t n) {
+  return __sync_add_and_fetch(&centree_root->nb_elements, 2);
 }
 
 void inc_empty_tree() {

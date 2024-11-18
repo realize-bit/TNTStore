@@ -46,7 +46,7 @@ void tnt_index_add(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup(void *item);
 int tnt_index_invalid(void *item);
 
-struct index_scan tnt_scan(void *item, uint64_t size);
+uint64_t add_number_of_subtree(uint64_t n);
 void tnt_print(void);
 void inc_empty_tree();
 

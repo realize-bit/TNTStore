@@ -30,19 +30,36 @@
      // check again if new incoming requests have arrived. Boost performance a
      // tiny bit for zipfian workloads on AWS, but really not worthwhile
 
+
 /* Page cache */
 //#define PAGE_CACHE_SIZE (PAGE_SIZE * 20480)
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 14417920) //55GB
 //#define PAGE_CACHE_SIZE (PAGE_SIZE * 7864320) //30GB
-// #define PAGE_CACHE_SIZE (PAGE_SIZE * 3932160) //15GB
-//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1966080) //30GB
-#define PAGE_CACHE_SIZE (PAGE_SIZE * 2621440) //10GB
-// #define PAGE_CACHE_SIZE (PAGE_SIZE * 2097152) //8GB
-// #define PAGE_CACHE_SIZE (PAGE_SIZE * 1572864) //6GB
-// #define PAGE_CACHE_SIZE (PAGE_SIZE * 1310720) //5GB
-//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1048576)  // 4GB
-//#define PAGE_CACHE_SIZE (PAGE_SIZE *  524288) //2GB
-//#define PAGE_CACHE_SIZE (PAGE_SIZE *  262144) //1GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 3932160) //15GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 2621440) //10GB
 //#define PAGE_CACHE_SIZE (PAGE_SIZE * 786432) //3GB
+
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 8388608) //32GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 4194304) //16GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 2097152) //8GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1048576) //4GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 524288) //2GB
+
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1835008) //7GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1572864) //6GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE * 1310720) //5GB
+//#define PAGE_CACHE_SIZE (PAGE_SIZE *  262144) //1GB
+
+#ifndef SELECTED_BENCH
+#define SELECTED_BENCH ycsb_c_zipfian
+#endif
+
+#ifndef SELECTED_PAGE_CACHE_SIZE
+#define SELECTED_PAGE_CACHE_SIZE (PAGE_SIZE * 2097152) // Default 8GB
+#endif
+
+#define PAGE_CACHE_SIZE SELECTED_PAGE_CACHE_SIZE
+
 #define MAX_PAGE_CACHE (PAGE_CACHE_SIZE / PAGE_SIZE)
 #define MAX_SCAN_CACHE ((PAGE_CACHE_SIZE / PAGE_SIZE) / 10)
 
@@ -55,8 +72,8 @@
 #define GC_START_TRSHLD 0.9
 #define GC_END_TRSHLD 0.75
 
-#define KV_SIZE 64
-#define MAX_FILE_SIZE 8192 * PAGE_SIZE
+#define KV_SIZE 1024
+#define MAX_FILE_SIZE 16384 * PAGE_SIZE
 //#define REALKEY_FILE_PATH "/home/jongseok/research/tnt/figure/4/4.3/analysis/keydist/osm"
 
 
