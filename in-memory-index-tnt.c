@@ -280,6 +280,7 @@ void tnt_subtree_add(struct slab *s, void *tree, void *filter,
       .key = tmp_key,
       .slab = s,
   };
+  subtree_set_slab(tree, s);
   s->subtree = tree;
   s->filter = filter;
   centree_worker_insert(0, NULL, &e);

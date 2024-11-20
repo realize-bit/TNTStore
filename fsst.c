@@ -20,7 +20,7 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
   printf("free %lu %lu %lu %lu\n", s->min, s->max, s->seq, s->nb_items);
   s->min = -1;
   s->max = 0;
-  btree_free(s->subtree);
+  subtree_free(s->subtree);
 #if WITH_FILTER
   filter_delete(s->filter);
 #endif
@@ -48,9 +48,9 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
   W_UNLOCK(&s->tree_lock);
 }
 
-void skip_or_invalidate_index_fsst(void *e) {
-  index_entry_t *i = (index_entry_t *)e;
+void skip_or_invalidate_index_fsst(void *slab, uint64_t slab_idx) {
   struct slab_callback *cb;
+  struct slab *s = (struct slab *)slab;
   size_t page_num;
   size_t page_idx;
   char *src;
@@ -58,11 +58,11 @@ void skip_or_invalidate_index_fsst(void *e) {
   cb = malloc(sizeof(*cb));
   cb->cb = NULL;
   cb->cb_cb = check_and_remove_tree;
-  cb->slab = i->slab;
-  cb->slab_idx = GET_SIDX(i->slab_idx);
-  cb->fsst_slab = i->slab;
-  cb->fsst_idx = GET_SIDX(i->slab_idx);
-  R_UNLOCK(&i->slab->tree_lock);
+  cb->slab = s;
+  cb->slab_idx = GET_SIDX(slab_idx);
+  cb->fsst_slab = s;
+  cb->fsst_idx = GET_SIDX(slab_idx);
+  R_UNLOCK(&s->tree_lock);
   cb->item = malloc(cb->slab->item_size);
 
   page_num = item_page_num(cb->slab, cb->slab_idx);
@@ -71,7 +71,7 @@ void skip_or_invalidate_index_fsst(void *e) {
   src = &vict_file_fsst[(page_num * PAGE_SIZE) + page_idx];
   memcpy(cb->item, src, cb->slab->item_size);
   kv_update_async(cb);
-  R_LOCK(&i->slab->tree_lock);
+  R_LOCK(&s->tree_lock);
   return;
 }
 // victim node 선택하기
@@ -107,7 +107,7 @@ static void *fsst_worker(void *pdata) {
         pread(victim->slab->fd, vict_file_fsst, victim->slab->size_on_disk, 0);
 
         R_LOCK(&victim->slab->tree_lock);
-        subtree_forall_invalid(victim->slab->subtree, skip_or_invalidate_index_fsst);
+        subtree_forall_invalid(victim->slab->subtree, victim->slab, skip_or_invalidate_index_fsst);
         R_UNLOCK(&victim->slab->tree_lock);
       }
     }
