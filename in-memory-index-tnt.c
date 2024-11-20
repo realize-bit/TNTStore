@@ -358,8 +358,7 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
       if (!n) {
         R_UNLOCK(&centree_root_lock);
         while (1) {
-          if (cur_nb_elements >= 
-            __sync_fetch_and_or(&t->nb_elements, 0)) {  // Queue is full, wait
+          if (!prev->right || !prev->left) { 
             NOP10();
             if (!PINNING) usleep(2);
           } else {
