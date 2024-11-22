@@ -558,7 +558,7 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
   if (s->size_on_disk == 0) {
     s->last_item = s->nb_max_items;
     s->full = 1;
-    btree_free(s->subtree);
+    subtree_free(s->subtree);
 #if WITH_FILTER
     filter_delete(s->filter);
 #endif
