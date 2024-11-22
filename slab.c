@@ -497,6 +497,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       //printf("UPCASE: 2\n");
       break;
     } else if (old_s->seq > s->seq) {
+      R_UNLOCK(&old_s->tree_lock);
       // 이미 최신게 들어있으므로 업데이트 안함
       //printf("UPCASE: 3\n");
       __sync_fetch_and_sub(&s->nb_items, 1);
