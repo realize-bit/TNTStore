@@ -447,6 +447,7 @@ index_entry_t *tnt_index_lookup(void *item) {
   uint64_t key = *(uint64_t *)item_key;
   centree_node n = t->root;
   index_entry_t *e = NULL, *tmp = NULL;
+  int try = 0;
 
   // Leaf node까지 내려가는 과정
   R_LOCK(&centree_root_lock);
@@ -471,6 +472,8 @@ index_entry_t *tnt_index_lookup(void *item) {
 #if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
 #endif
+        try++;
+        /*printf("try: %lu\n", s->seq);*/
         tmp = subtree_worker_lookup_utree(s->subtree, item);
         if (tmp) {
           //  && !TEST_INVAL(tmp->slab_idx)
@@ -489,6 +492,7 @@ index_entry_t *tnt_index_lookup(void *item) {
     // 부모 노드로 이동
     n = n->parent;  // parent 필드를 추가하고, 부모 노드로 이동
   }
+  printf("%d", try);
 
   if (e) return e;
   return NULL;
