@@ -146,7 +146,7 @@ static struct slab *get_slab(struct slab_context *ctx, void *item,
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   uint64_t idx;
-  struct tree_entry *tree = tnt_subtree_get((void *)key, &idx, old_e);
+  struct tree_entry *tree = skt_subtree_get((void *)key, &idx, old_e);
 
   if (!tree) die("Item is too big\n");
 
@@ -269,7 +269,7 @@ again:
     // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
     if (action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP &&
         action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
-      e = tnt_index_lookup(callback->item);
+      e = skt_index_lookup(callback->item);
 
     // printf("(%d) i: %lu, cb: %p\n", ctx->worker_id, i, callback->cb);
     switch (action) {
@@ -826,7 +826,7 @@ void slab_workers_init(int _nb_disks, int nb_workers_per_disk,
   nb_totals = 0;
 
   slab_contexts = calloc(nb_workers + nb_distributors, sizeof(*slab_contexts));
-  if (!create_root_slab()) {
+  if (!create_skt_root_slab()) {
     pthread_t *t = malloc((nb_distributors + nb_workers)*sizeof(pthread_t));
     for (size_t w = 0; w < nb_distributors + nb_workers; w++) {
       struct slab_context *ctx = &slab_contexts[w];

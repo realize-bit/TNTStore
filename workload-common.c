@@ -51,7 +51,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   uint64_t cur;
 
   W_LOCK(&s->tree_lock);
-  tnt_index_add(cb, item);
+  skt_index_add(cb, item);
   // s->nb_items++;
 #if WITH_FILTER
   if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
@@ -67,12 +67,12 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   __sync_fetch_and_sub(&s->update_ref, 1);
 
   //printf("level %lu, %d\n", ((centree_node)s->centree_node)->value.level, rc_thr);
-  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
-    !__sync_fetch_and_or(&s->update_ref, 0) &&
-    !((centree_node)s->centree_node)->removed) {
-    enqueue = 1;
-    ((centree_node)s->centree_node)->removed = 1;
-  }
+  //if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
+  //  !__sync_fetch_and_or(&s->update_ref, 0) &&
+  //  !((centree_node)s->centree_node)->removed) {
+  //  enqueue = 1;
+  //  ((centree_node)s->centree_node)->removed = 1;
+  //}
   // if (s->last_item == s->nb_max_items)
   // s->imm = 1;
 

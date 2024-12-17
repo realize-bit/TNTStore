@@ -53,7 +53,7 @@ void pin_me_on(int core) {
   pthread_t thread = pthread_self();
 
   CPU_ZERO(&cpuset);
-  CPU_SET(core*2, &cpuset);
+  CPU_SET(core, &cpuset);
 
   int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
   if (s != 0) die("Cannot pin thread on core %d\n", core);

@@ -7,7 +7,7 @@
 #define FSST_PATH "/scratch0/kvell/fsst-%lu-%lu"
 
 #define WITH_FILTER 0
-#define WITH_RC 1
+#define WITH_RC 0
 #define WITH_HOT 0
 
 /* In memory structures */

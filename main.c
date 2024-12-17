@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
   load = 0;
 
   start_timer {
-    flush_batched_load();
+    skt_flush_batched_load();
   }
   stop_timer("Remaining batch loading");
 

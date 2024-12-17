@@ -90,8 +90,6 @@ void skt_subtree_split(int degree, struct slab *target_s) {
   new_head_tree->depth = closest_node->tree->depth + 1;
   new_head_slab->subtree = new_head_tree;
   closest_node->tree = new_head_tree;
-
-  printf("split done\n");
 }
 
 /* ========================================= */
@@ -197,7 +195,6 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   W_UNLOCK(&s->tree_lock);
 
   if (*idx == (max*0.75)) {
-    printf("split\n");
     skt_subtree_split(2, s);
   }
 
@@ -235,14 +232,12 @@ index_entry_t *skt_index_lookup(void *item) {
     count++;
     res = subtree_find(t, (unsigned char *)&key, sizeof(key), &tmp_entry);
     if (res) {
-      printf("%d ", count);
+      R_UNLOCK(&s->tree_lock);
       return &tmp_entry;
     }
     t = t->next;
     R_UNLOCK(&s->tree_lock);
   }
-
-  printf("%d ", count);
 
   return NULL;
 }
@@ -300,8 +295,6 @@ int create_skt_root_slab(void) {
   skt_init();
 
   new_slab = create_slab(NULL, 0, 0, 0, NULL);
-  printf("new_slab: %p\n", new_slab);
-  printf("skt_list_head->tree: %p\n", skt_list_head->tree);
   new_slab->subtree = skt_list_head->tree;
   subtree_set_slab(skt_list_head->tree, new_slab);
 
@@ -353,6 +346,51 @@ void skt_print(void) {
     printf("\n");
   }
   printf("=== SKT 구조 출력 완료 ===\n\n");
+}
+
+void skt_flush_batched_load(void) {
+  tree_entry_t *victim = NULL;
+  struct slab *s = NULL;
+  
+  // skt_list_head의 subtree들 먼저 처리
+  subtree_t *head_tree = skt_list_head->tree;
+  while (head_tree != NULL) {
+    s = head_tree->slab;
+    if (s && s->nb_batched != 0) {
+      for (int i=0; i < s->nb_batched; i++) {
+        struct slab_callback *cb = s->batched_callbacks[i];
+        kv_add_async_no_lookup(cb, cb->slab, cb->slab_idx);
+        s->batched_callbacks[i] = NULL;
+      }
+      s->nb_batched = 0;
+      if (!s->batched_callbacks)
+        free(s->batched_callbacks);
+    }
+    head_tree = head_tree->next;
+  }
+
+  // skt_list의 나머지 노드들 처리
+  skiplist_node *curr = skiplist_begin(&skt_list);
+  while (curr) {
+    skt_node_t *skt_node = _get_entry(curr, skt_node_t, snode);
+    subtree_t *tree = skt_node->tree;
+    
+    while (tree != NULL) {
+      s = tree->slab;
+      if (s && s->nb_batched != 0) {
+        for (int i=0; i < s->nb_batched; i++) {
+          struct slab_callback *cb = s->batched_callbacks[i];
+          kv_add_async_no_lookup(cb, cb->slab, cb->slab_idx);
+          s->batched_callbacks[i] = NULL;
+        }
+        s->nb_batched = 0;
+        if (!s->batched_callbacks)
+          free(s->batched_callbacks);
+      }
+      tree = tree->next;
+    }
+    curr = skiplist_next(&skt_list, curr);
+  }
 }
 
 

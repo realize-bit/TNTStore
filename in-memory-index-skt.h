@@ -21,5 +21,6 @@ void skt_list_worker_insert(subtree_t *t, uint64_t key);
 void skt_subtree_split(int degree, struct slab *target_s);
 void skt_print(void);
 int create_skt_root_slab(void);
+void skt_flush_batched_load(void);
 
 #endif

@@ -415,9 +415,9 @@ void add_item_async_cb1(struct slab_callback *callback) {
       assert(s->full == 1);
       assert(s->last_item == s->nb_max_items);
       // s->imm = 1;
-      R_UNLOCK(&s->tree_lock);
-      s = close_and_create_slab(s);
-      R_LOCK(&s->tree_lock);
+      //R_UNLOCK(&s->tree_lock);
+      //s = close_and_create_slab(s);
+      //R_LOCK(&s->tree_lock);
     }
   } else {  // reuse a free spot. Don't forget to add the linked tombstone in
             // the freelist.
