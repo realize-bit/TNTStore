@@ -6,7 +6,7 @@
 // 테스트 데이터 크기
 #define TEST_SIZE 10000000
 #define KV_SIZE 16
-#define MAX_FILE_SIZE (4 * 1024 * 1024) // 4MB
+#define MAX_FILE_SIZE (4 * 1024 * 1024)
 int load = 0;
 int rc_thr = 1;
 
@@ -27,15 +27,15 @@ void add_to_tree(struct slab_callback *cb, char *item) {
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   uint64_t idx;
-  struct tree_entry *tree = tnt_subtree_get((void *)key, &idx, NULL);
+  struct tree_entry *tree = skt_subtree_get((void *)key, &idx, NULL);
   struct slab *s = tree->slab;
   cb->slab = s;
 
-  if (s->nb_items >= s->nb_max_items) {
-    close_and_create_slab(s);
-  }
+  //if (s->nb_items >= s->nb_max_items) {
+  //  close_and_create_slab(s);
+  //}
 
-  tnt_index_add(cb, item); // 데이터 추가
+  skt_index_add(cb, item);
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
 
@@ -46,15 +46,15 @@ void add_to_tree_for_update(struct slab_callback *cb, char *item) {
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   uint64_t idx;
-  struct tree_entry *tree = tnt_subtree_get((void *)key, &idx, NULL);
+  struct tree_entry *tree = skt_subtree_get((void *)key, &idx, NULL);
   struct slab *s = tree->slab;
   cb->slab = s;
 
-  if (s->nb_items >= s->nb_max_items) {
-    close_and_create_slab(s);
-  }
+  //if (s->nb_items >= s->nb_max_items) {
+  //  close_and_create_slab(s);
+  //}
 
-  tnt_index_add(cb, item); // 데이터 추가
+  skt_index_add(cb, item);
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
 
@@ -114,7 +114,7 @@ void shuffle_ranges(uint64_t *keys, size_t size, size_t range_size) {
 
 int main() {
   // 초기화
-  if (!create_root_slab()) {
+  if (!create_skt_root_slab()) {
     fprintf(stderr, "Failed to initialize root slab.\n");
     return EXIT_FAILURE;
   }
@@ -130,12 +130,12 @@ int main() {
     keys[i] = i + 1;
   }
   // 키 랜덤하게 섞기
-  srand(time(NULL));
-  shuffle_ranges(keys, TEST_SIZE, 1000000);
+  //srand(time(NULL));
+  shuffle_ranges(keys, TEST_SIZE, 1);
 
 
   // 테스트 데이터 생성 및 추가
-  for (uint64_t i = 1; i <= TEST_SIZE; i++) {
+  for (uint64_t i = 0; i < TEST_SIZE; i++) {
     char *item = create_test_item(keys[i], 1024); // 16바이트 값 크기
 
     cb.slab_idx = i;
@@ -153,7 +153,7 @@ int main() {
     char *item = create_test_item(i, 1024);
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start); // 시작 시간 측정
-    index_entry_t *entry = tnt_index_lookup(item);
+    index_entry_t *entry = skt_index_lookup(item);
     clock_gettime(CLOCK_MONOTONIC, &end);   // 종료 시간 측정
 
     long elapsed_time = (end.tv_sec - start.tv_sec) * 1e9 + 
@@ -167,7 +167,7 @@ int main() {
 
     free(item);
   }
-  tnt_print();
+  skt_print();
 
   //// 테스트 데이터 업데이트
   //for (uint64_t i = 1; i <= TEST_SIZE; i++) {

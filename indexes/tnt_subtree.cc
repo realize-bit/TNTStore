@@ -21,6 +21,7 @@ static inline unsigned char test_inval(size_t *addr) {
 }
 subtree_t *subtree_create() {
   subtree_t *t = (subtree_t*) malloc(sizeof(subtree_t));
+  t->next = NULL;
   btree_map<uint64_t, uint64_t> *b =
       new btree_map<uint64_t, uint64_t>();
   t->tree = b;
@@ -29,6 +30,11 @@ subtree_t *subtree_create() {
 
 void subtree_set_slab(subtree_t *t, void *slab) {
   t->slab = slab;
+  return;
+}
+
+void subtree_set_next(subtree_t *t, void *next) {
+  t->next = next;
   return;
 }
 

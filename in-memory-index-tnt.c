@@ -524,6 +524,7 @@ int tnt_index_invalid(void *item) {
       if (filter_contain(s->filter, (unsigned char *)&key)) {
 #endif
         if (subtree_worker_invalid_utree(s->subtree, item)) {
+          // TODO: 이것만 atm이면 문제 생길 수 있음
           __sync_fetch_and_sub(&s->nb_items, 1);
           count++;
           R_UNLOCK(&s->tree_lock);

@@ -9,6 +9,8 @@ extern "C" {
 typedef struct subtree {
   void *slab;
   void *tree;
+  void *next;
+  uint64_t depth;
 } subtree_t;
 
 subtree_t *subtree_create();
@@ -16,6 +18,7 @@ int subtree_find(subtree_t *t, unsigned char *k, size_t len,
                  struct index_entry *e);
 int subtree_set_invalid(subtree_t *t, unsigned char *k, size_t len);
 void subtree_set_slab(subtree_t *t, void *slab);
+void subtree_set_next(subtree_t *t, void *next);
 int subtree_delete(subtree_t *t, unsigned char *k, size_t len);
 void subtree_insert(subtree_t *t, unsigned char *k, size_t len,
                     struct index_entry *e);

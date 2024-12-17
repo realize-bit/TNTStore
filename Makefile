@@ -14,8 +14,8 @@ CFLAGS += -DSELECTED_BENCH=$(BENCH) -DSELECTED_PAGE_CACHE_SIZE=$(PAGE_CACHE_SIZE
 
 LDLIBS=-lm -lpthread -lstdc++ 
 
-INDEXES_OBJ=indexes/rbtree.o indexes/btree.o indexes/filter.o indexes/tnt_centree.o indexes/tnt_subtree.o
-OTHERS_OBJ=slab.o freelist.o ioengine.o pagecache.o stats.o random.o slabworker.o workload-common.o workload-ycsb.o workload-dbbench.o workload-production.o utils.o in-memory-index-tnt.o in-memory-index-rbtree.o in-memory-index-btree.o fsst.o db_bench.o ${INDEXES_OBJ}
+INDEXES_OBJ=indexes/rbtree.o indexes/btree.o indexes/filter.o indexes/tnt_centree.o indexes/tnt_subtree.o indexes/skiplist.o
+OTHERS_OBJ=slab.o freelist.o ioengine.o pagecache.o stats.o random.o slabworker.o workload-common.o workload-ycsb.o workload-dbbench.o workload-production.o utils.o in-memory-index-tnt.o in-memory-index-skt.o in-memory-index-rbtree.o in-memory-index-btree.o fsst.o db_bench.o ${INDEXES_OBJ}
 MAIN_OBJ=main.o ${OTHERS_OBJ} 
 TEST_OBJ=test/main.o ${OTHERS_OBJ}
 BENCH_OBJ=benchcomponents.o pagecache.o random.o $(INDEXES_OBJ)
