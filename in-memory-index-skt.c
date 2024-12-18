@@ -172,6 +172,7 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   skt_node_t query;
   skiplist_node *n;
   skt_node_t *closest_node;
+  index_entry_t new_entry;
   size_t max;
   
   query.key = (uint64_t)key;
@@ -185,6 +186,13 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   }
 
   W_LOCK(&s->tree_lock);
+  if (subtree_find(s->subtree, (unsigned char *)&key, sizeof(key),
+                   &new_entry)) {
+    *idx = GET_SIDX(new_entry.slab_idx);
+    W_UNLOCK(&s->tree_lock);
+    goto out;
+  }
+
   *idx = s->last_item++;
   s->nb_items++;
   if (s->last_item == s->nb_max_items) {
@@ -192,9 +200,16 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
     s->nb_max_items *= 2;
   }
   max = s->nb_max_items;
+
+  new_entry.slab = s;
+  new_entry.slab_idx = *idx;
+  SET_INVAL(new_entry.slab_idx);
+  subtree_insert(s->subtree, (unsigned char *)&key, sizeof(key), &new_entry);
+
   W_UNLOCK(&s->tree_lock);
 
   if (*idx == (max*0.75)) {
+    //skt_subtree_split((closest_node->tree->depth + 1) * 2, s);
     skt_subtree_split(2, s);
   }
 
@@ -230,10 +245,11 @@ index_entry_t *skt_index_lookup(void *item) {
     struct slab *s = t->slab;
     R_LOCK(&s->tree_lock);
     count++;
-    res = subtree_find(t, (unsigned char *)&key, sizeof(key), &tmp_entry);
-    if (res) {
-      R_UNLOCK(&s->tree_lock);
-      return &tmp_entry;
+    if (subtree_find(t, (unsigned char *)&key, sizeof(key), &tmp_entry)) {
+      if (!TEST_INVAL(tmp_entry.slab_idx)) {
+        R_UNLOCK(&s->tree_lock);
+        return &tmp_entry;
+      }
     }
     t = t->next;
     R_UNLOCK(&s->tree_lock);
@@ -244,9 +260,41 @@ index_entry_t *skt_index_lookup(void *item) {
 
 void skt_index_add(struct slab_callback *cb, void *item) {
   index_entry_t new_entry;
-  new_entry.slab = cb->slab;
+  struct slab *s = cb->slab;
+  uint64_t key = get_prefix_for_item(item);
+
+  new_entry.slab = s;
   new_entry.slab_idx = cb->slab_idx;
-  subtree_worker_insert(cb->slab->subtree, item, &new_entry);
+  subtree_worker_insert(s->subtree, item, &new_entry);
+  if (key < s->min) s->min = key;
+  if (key > s->max) s->max = key;
+}
+
+void skt_index_delete(struct slab_callback *cb, void *item) {
+  subtree_worker_delete(cb->slab->subtree, item);
+}
+
+void skt_index_swap_for_update(struct slab_callback *cb, void *item) {
+  index_entry_t entry;
+  struct slab *s = cb->slab;
+  uint64_t key = get_prefix_for_item(item);
+
+  W_LOCK(&s->tree_lock);
+  if (subtree_find(s->subtree, (unsigned char *)&key, sizeof(key), &entry)) {
+    UNSET_INVAL(entry.slab_idx);
+    subtree_delete(s->subtree, (unsigned char *)&key, sizeof(key));
+    if (entry.slab_idx < cb->slab_idx) {
+      s->nb_items--;
+      entry.slab_idx = cb->slab_idx;
+    }
+  }
+
+  subtree_worker_insert(s->subtree, item, &entry);
+
+  if (key < s->min) s->min = key;
+  if (key > s->max) s->max = key;
+
+  W_UNLOCK(&s->tree_lock);
 }
 
 int skt_index_invalid(void *item) {
@@ -266,18 +314,20 @@ int skt_index_invalid(void *item) {
   while (t != NULL) {
     struct slab *s = t->slab;
     R_LOCK(&s->tree_lock);
-    if (subtree_worker_invalid_utree(t, item)) {
-      // TODO: 이것만 atm이면 문제 생길 수 있음
-      __sync_fetch_and_sub(&s->nb_items, 1);
-      count++;
+    if (subtree_find(t, (unsigned char *)&key, sizeof(key), &tmp_entry)) {
       R_UNLOCK(&s->tree_lock);
+      W_LOCK(&s->tree_lock);
+      if (subtree_delete(t, (unsigned char *)&key, sizeof(key))) {
+        s->nb_items--;
+      }
+      W_UNLOCK(&s->tree_lock);
       return 1;
     }
     t = t->next;
     R_UNLOCK(&s->tree_lock);
   }
 
-  return count;
+  return 0;
 }
 
 subtree_t *skt_subtree_create(void) { return subtree_create(); }

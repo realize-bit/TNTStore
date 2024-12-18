@@ -15,6 +15,8 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e);
 void skt_subtree_update_key(uint64_t old_key, uint64_t new_key);
 index_entry_t *skt_index_lookup(void *item);
 void skt_index_add(struct slab_callback *cb, void *item);
+void skt_index_swap_for_update(struct slab_callback *cb, void *item);
+void skt_index_delete(struct slab_callback *cb, void *item);
 int skt_index_invalid(void *item);
 subtree_t *skt_subtree_create(void);
 void skt_list_worker_insert(subtree_t *t, uint64_t key);

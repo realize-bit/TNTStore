@@ -51,6 +51,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   uint64_t cur;
 
   W_LOCK(&s->tree_lock);
+  skt_index_delete(cb, item);
   skt_index_add(cb, item);
   // s->nb_items++;
 #if WITH_FILTER
@@ -60,9 +61,6 @@ void add_in_tree(struct slab_callback *cb, void *item) {
     printf("FIFIFIFIF\n");
   }
 #endif
-
-  if (key < s->min) s->min = key;
-  if (key > s->max) s->max = key;
 
   __sync_fetch_and_sub(&s->update_ref, 1);
 

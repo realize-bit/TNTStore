@@ -469,136 +469,157 @@ void add_item_async(struct slab_callback *callback) {
   callback->io_cb(callback);
 }
 
+//void add_in_tree_for_update(struct slab_callback *cb, void *item) {
+//  struct slab *s = cb->slab;
+//  struct slab *old_s = cb->fsst_slab;
+//  uint64_t old_idx = cb->fsst_idx;
+//  unsigned char enqueue = 0;
+//  struct item_metadata *meta = (struct item_metadata *)item;
+//  char *item_key = &item[sizeof(*meta)];
+//  uint64_t key = *(uint64_t *)item_key;
+//  int removed = 0, alrdy = 0;
+//  uint64_t cur;
+//  index_entry_t *e = NULL;
+//
+//  while(!removed) {
+//
+//    R_LOCK(&old_s->tree_lock);
+//    if (old_s == s) {
+//      R_UNLOCK(&old_s->tree_lock);
+//      // 이미 최신게 들어있으므로 업데이트 안함
+//      // 두 케이스 다 원래 두 자리 잡아놨는데 하나만 유효하므로 하나 뺌
+//      __sync_fetch_and_sub(&s->nb_items, 1);
+//      if (old_idx > cb->slab_idx) {
+//        //printf("UPCASE: 1\n");
+//        goto skip;
+//      }
+//      // s에 delete 후 add
+//      //printf("UPCASE: 2\n");
+//      break;
+//    } else if (old_s->seq > s->seq) {
+//      R_UNLOCK(&old_s->tree_lock);
+//      // 이미 최신게 들어있으므로 업데이트 안함
+//      //printf("UPCASE: 3\n");
+//      __sync_fetch_and_sub(&s->nb_items, 1);
+//      goto skip;
+//    }
+//  
+//    if (old_s->min != -1)
+//      removed = tnt_index_invalid_utree(old_s->subtree, cb->item);
+//    R_UNLOCK(&old_s->tree_lock);
+//
+//    if (!removed) {
+//      do {
+//        e = tnt_index_lookup(cb->item);
+//      } while(e->slab == old_s);
+//
+//      old_s = e->slab;
+//      old_idx = e->slab_idx;
+//      // 동시에 수정하는 누군가가 자기가 지워야 하는 것을 이미 지운 것.
+//      //  그 친구가 새로 추가한 것을 지워야함
+//      //removed = tnt_index_invalid(cb->item);
+//      //if (!removed)
+//      //  printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key,
+//      //         cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
+//      //printf("UPCASE: RETRY\n");
+//    } else {
+//      //printf("UPCASE: 5\n");
+//      __sync_fetch_and_sub(&old_s->nb_items, 1);
+//    }
+//  }
+//
+//  W_LOCK(&s->tree_lock);
+//    // CASE 2에서 여러 쓰레드가 여기 도달 가능.
+//    // 두 쓰레드들 중 가장 최신의 애가 먼저 lock 잡고 추가했다면
+//    // 그 다음 쓰레드는 스킵해야함.
+//  e = tnt_index_lookup_utree(s->subtree, item);
+//  if (e) {
+//    if (e->slab_idx > cb->slab_idx) {
+//      //printf("UPCASE: Final Skip\n");
+//
+//      W_UNLOCK(&s->tree_lock);
+//      goto skip;
+//    } 
+//    alrdy = tnt_index_delete(s->subtree, item);
+//  }
+//  tnt_index_add(cb, item);
+//
+//  if (!alrdy) {
+//    __sync_fetch_and_add(&nb_totals, 1);
+//    // s->nb_items++;
+//#if WITH_FILTER
+//    if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
+//      printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n",
+//             s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq,
+//             cb->fsst_idx);
+//    } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
+//      printf("FIFIFIFIF UPUP\n");
+//    }
+//#endif
+//  }
+//
+//  if (key < s->min) s->min = key;
+//  if (key > s->max) s->max = key;
+//
+//  W_UNLOCK(&s->tree_lock);
+//
+//skip:
+//  __sync_fetch_and_sub(&s->update_ref, 1);
+//
+//  R_LOCK(&s->tree_lock);
+//
+//  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
+//    !__sync_fetch_and_or(&s->update_ref, 0) &&
+//      !((centree_node)s->centree_node)->removed) {
+//    enqueue = 1;
+//    ((centree_node)s->centree_node)->removed = 1;
+//  }
+//
+//  cur = __sync_fetch_and_add(&s->read_ref, 0);
+//
+//  if (s->min == -1 && 
+//    __sync_fetch_and_or(&s->update_ref, 0) == 0 
+//    && cur == 0) {
+//    char path[128], spath[128];
+//    int len;
+//    sprintf(path, "/proc/self/fd/%d", s->fd);
+//    if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
+//    spath[len] = 0;
+//    close(s->fd);
+//    /*strncpy(path, spath, len);*/
+//    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
+//    truncate(spath, 0);
+//    /*rename(spath, path);*/
+//    //unlink(spath);
+//    //printf("REMOVED FILE\n");
+//  }
+//  R_UNLOCK(&s->tree_lock);
+//
+//
+//#if WITH_RC
+//  if (enqueue) bgq_enqueue(FSST, s->centree_node);
+//#endif
+//
+//  if (cb->cb_cb == add_in_tree_for_update) {
+//    free(cb->item);
+//    free(cb);
+//  }
+//}
+
 void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
   struct slab *old_s = cb->fsst_slab;
-  uint64_t old_idx = cb->fsst_idx;
-  unsigned char enqueue = 0;
-  struct item_metadata *meta = (struct item_metadata *)item;
-  char *item_key = &item[sizeof(*meta)];
-  uint64_t key = *(uint64_t *)item_key;
-  int removed = 0, alrdy = 0;
-  uint64_t cur;
-  index_entry_t *e = NULL;
 
-  while(!removed) {
+  skt_index_swap_for_update(cb, item);
 
-    R_LOCK(&old_s->tree_lock);
-    if (old_s == s) {
-      R_UNLOCK(&old_s->tree_lock);
-      // 이미 최신게 들어있으므로 업데이트 안함
-      // 두 케이스 다 원래 두 자리 잡아놨는데 하나만 유효하므로 하나 뺌
-      __sync_fetch_and_sub(&s->nb_items, 1);
-      if (old_idx > cb->slab_idx) {
-        //printf("UPCASE: 1\n");
-        goto skip;
-      }
-      // s에 delete 후 add
-      //printf("UPCASE: 2\n");
-      break;
-    } else if (old_s->seq > s->seq) {
-      R_UNLOCK(&old_s->tree_lock);
-      // 이미 최신게 들어있으므로 업데이트 안함
-      //printf("UPCASE: 3\n");
-      __sync_fetch_and_sub(&s->nb_items, 1);
-      goto skip;
-    }
-  
-    if (old_s->min != -1)
-      removed = tnt_index_invalid_utree(old_s->subtree, cb->item);
-    R_UNLOCK(&old_s->tree_lock);
-
-    if (!removed) {
-      do {
-        e = tnt_index_lookup(cb->item);
-      } while(e->slab == old_s);
-
-      old_s = e->slab;
-      old_idx = e->slab_idx;
-      // 동시에 수정하는 누군가가 자기가 지워야 하는 것을 이미 지운 것.
-      //  그 친구가 새로 추가한 것을 지워야함
-      //removed = tnt_index_invalid(cb->item);
-      //if (!removed)
-      //  printf("UPDATE NULL %lu seq/idx %lu/%lu fsst %lu/%lu\n", key,
-      //         cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq, cb->fsst_idx);
-      //printf("UPCASE: RETRY\n");
-    } else {
-      //printf("UPCASE: 5\n");
-      __sync_fetch_and_sub(&old_s->nb_items, 1);
-    }
+  if (old_s != s) {
+    W_LOCK(&old_s->tree_lock);
+    subtree_worker_delete(old_s->subtree, item);
+    old_s->nb_items--;
+    W_UNLOCK(&old_s->tree_lock);
   }
 
-  W_LOCK(&s->tree_lock);
-    // CASE 2에서 여러 쓰레드가 여기 도달 가능.
-    // 두 쓰레드들 중 가장 최신의 애가 먼저 lock 잡고 추가했다면
-    // 그 다음 쓰레드는 스킵해야함.
-  e = tnt_index_lookup_utree(s->subtree, item);
-  if (e) {
-    if (e->slab_idx > cb->slab_idx) {
-      //printf("UPCASE: Final Skip\n");
-
-      W_UNLOCK(&s->tree_lock);
-      goto skip;
-    } 
-    alrdy = tnt_index_delete(s->subtree, item);
-  }
-  tnt_index_add(cb, item);
-
-  if (!alrdy) {
-    __sync_fetch_and_add(&nb_totals, 1);
-    // s->nb_items++;
-#if WITH_FILTER
-    if (filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
-      printf("Fail adding to filter %p %lu seq/idx %lu/%lu fsst %lu/%lu\n",
-             s->filter, key, cb->slab->seq, cb->slab_idx, cb->fsst_slab->seq,
-             cb->fsst_idx);
-    } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
-      printf("FIFIFIFIF UPUP\n");
-    }
-#endif
-  }
-
-  if (key < s->min) s->min = key;
-  if (key > s->max) s->max = key;
-
-  W_UNLOCK(&s->tree_lock);
-
-skip:
   __sync_fetch_and_sub(&s->update_ref, 1);
-
-  R_LOCK(&s->tree_lock);
-
-  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
-    !__sync_fetch_and_or(&s->update_ref, 0) &&
-      !((centree_node)s->centree_node)->removed) {
-    enqueue = 1;
-    ((centree_node)s->centree_node)->removed = 1;
-  }
-
-  cur = __sync_fetch_and_add(&s->read_ref, 0);
-
-  if (s->min == -1 && 
-    __sync_fetch_and_or(&s->update_ref, 0) == 0 
-    && cur == 0) {
-    char path[128], spath[128];
-    int len;
-    sprintf(path, "/proc/self/fd/%d", s->fd);
-    if ((len = readlink(path, spath, 512)) < 0) die("READLINK\n");
-    spath[len] = 0;
-    close(s->fd);
-    /*strncpy(path, spath, len);*/
-    /*snprintf(path + len, 128 - len, "-%lu", s->key);*/
-    truncate(spath, 0);
-    /*rename(spath, path);*/
-    //unlink(spath);
-    //printf("REMOVED FILE\n");
-  }
-  R_UNLOCK(&s->tree_lock);
-
-
-#if WITH_RC
-  if (enqueue) bgq_enqueue(FSST, s->centree_node);
-#endif
 
   if (cb->cb_cb == add_in_tree_for_update) {
     free(cb->item);

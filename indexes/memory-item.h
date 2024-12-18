@@ -24,7 +24,12 @@ static inline void set_bit(int nr, size_t *addr) {
   asm("btsl %1,%0" : "+m"(*(size_t *)addr) : "Ir"(nr));
 }
 
+static inline void clear_bit(int nr, size_t *addr) {
+  asm("btrl %1,%0" : "+m"(*(size_t *)addr) : "Ir"(nr));
+}
+
 #define SET_INVAL(x) set_bit(63, &x)
+#define UNSET_INVAL(x) clear_bit(63, &x)
 #define TEST_INVAL(x) test_bit(63, &x)
 #define GET_SIDX(x) ((x << 1) >> 1)
 

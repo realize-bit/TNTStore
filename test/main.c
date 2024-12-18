@@ -4,7 +4,7 @@
 #include <string.h>
 
 // 테스트 데이터 크기
-#define TEST_SIZE 10000000
+#define TEST_SIZE 1000000
 #define KV_SIZE 16
 #define MAX_FILE_SIZE (4 * 1024 * 1024)
 int load = 0;
@@ -30,15 +30,16 @@ void add_to_tree(struct slab_callback *cb, char *item) {
   struct tree_entry *tree = skt_subtree_get((void *)key, &idx, NULL);
   struct slab *s = tree->slab;
   cb->slab = s;
+  cb->slab_idx = idx;
 
   //if (s->nb_items >= s->nb_max_items) {
   //  close_and_create_slab(s);
   //}
 
+  skt_index_delete(cb, item);
   skt_index_add(cb, item);
   if (key < s->min) s->min = key;
   if (key > s->max) s->max = key;
-
 }
 
 void add_to_tree_for_update(struct slab_callback *cb, char *item) {
@@ -46,18 +47,26 @@ void add_to_tree_for_update(struct slab_callback *cb, char *item) {
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
   uint64_t idx;
+  index_entry_t *entry = skt_index_lookup(item);
   struct tree_entry *tree = skt_subtree_get((void *)key, &idx, NULL);
   struct slab *s = tree->slab;
+  struct slab *old_s = NULL;
+
   cb->slab = s;
+  cb->slab_idx = idx;
 
-  //if (s->nb_items >= s->nb_max_items) {
-  //  close_and_create_slab(s);
-  //}
+  if (idx == -1) {
+    cb->slab_idx = entry->slab_idx;
+  }
+  if (entry) {
+    old_s = entry->slab;
+  }
 
-  skt_index_add(cb, item);
-  if (key < s->min) s->min = key;
-  if (key > s->max) s->max = key;
-
+  skt_index_swap_for_update(cb, item);
+  if (old_s && old_s != s) {
+    subtree_worker_delete(old_s->subtree, item);
+    old_s->nb_items--;
+  }
 }
 
 // 키 배열을 랜덤하게 섞는 함수
@@ -146,54 +155,57 @@ int main() {
     //printf("Added key: %lu to tree.\n", i);
     free(item);
   }
-  free(keys);
 
-  // 테스트 데이터 조회
-  for (uint64_t i = 1; i <= TEST_SIZE; i++) {
-    char *item = create_test_item(i, 1024);
+  //// 테스트 데이터 조회
+  //for (uint64_t i = 1; i <= TEST_SIZE; i++) {
+  //  char *item = create_test_item(i, 1024);
+  //  struct timespec start, end;
+  //  clock_gettime(CLOCK_MONOTONIC, &start); // 시작 시간 측정
+  //  index_entry_t *entry = skt_index_lookup(item);
+  //  clock_gettime(CLOCK_MONOTONIC, &end);   // 종료 시간 측정
+
+  //  long elapsed_time = (end.tv_sec - start.tv_sec) * 1e9 + 
+  //    (end.tv_nsec - start.tv_nsec); // 밀리초 단위로 계산
+
+  //  if (entry) {
+  //    printf(" Try. Lookup key %lu: Found. Time: %ld ns\n", i, elapsed_time);
+  //  } else {
+  //    printf("Lookup key %lu: Not found. Time: %ld ns\n", i, elapsed_time);
+  //  }
+
+  //  free(item);
+  //}
+
+  // 테스트 데이터 업데이트
+  for (uint64_t i = 0; i < TEST_SIZE; i++) {
+    char *item = create_test_item(keys[i], 1024); // 16바이트 값 크기
+
+    cb.item = item;
+
+    add_to_tree_for_update(&cb, item); // 업데이트된 항목 추가
+
+    free(item);
+  }
+
+  // 업데이트 확인
+  for (uint64_t i = 0; i < TEST_SIZE; i++) {
+    char *item = create_test_item(keys[i], 1024);
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start); // 시작 시간 측정
     index_entry_t *entry = skt_index_lookup(item);
     clock_gettime(CLOCK_MONOTONIC, &end);   // 종료 시간 측정
 
-    long elapsed_time = (end.tv_sec - start.tv_sec) * 1e9 + 
+    long elapsed_time = (end.tv_sec - start.tv_sec) * 1e9 +
       (end.tv_nsec - start.tv_nsec); // 밀리초 단위로 계산
 
-    if (entry) {
-      printf(" Try. Lookup key %lu: Found. Time: %ld ns\n", i, elapsed_time);
-    } else {
+    if (!entry)
       printf("Lookup key %lu: Not found. Time: %ld ns\n", i, elapsed_time);
-    }
 
     free(item);
   }
+
+  free(keys);
   skt_print();
-
-  //// 테스트 데이터 업데이트
-  //for (uint64_t i = 1; i <= TEST_SIZE; i++) {
-  //  char *item = create_test_item(i, 16);
-  //  index_entry_t *entry = tnt_index_lookup(item);
-
-  //  if (entry) {
-  //    entry->slab_idx += 1000; // slab_idx 값 갱신
-  //    tnt_index_add(&cb, item); // 업데이트된 항목 추가
-  //    printf("Updated key %lu: New slab_idx %lu.\n", i, entry->slab_idx);
-  //  }
-
-  //  free(item);
-  //}
-
-  //// 업데이트 확인
-  //for (uint64_t i = 1; i <= TEST_SIZE; i++) {
-  //  char *item = create_test_item(i, 16);
-  //  index_entry_t *entry = tnt_index_lookup(item);
-
-  //  if (entry) {
-  //    printf("Post-update key %lu: slab_idx %lu.\n", i, entry->slab_idx);
-  //  }
-
-  //  free(item);
-  //}
 
 
   return 0;
