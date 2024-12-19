@@ -196,7 +196,8 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   *idx = s->last_item++;
   s->nb_items++;
   if (s->last_item == s->nb_max_items) {
-    ftruncate(s->fd, s->size_on_disk*2);
+    s->size_on_disk *= 2;
+    ftruncate(s->fd, s->size_on_disk);
     s->nb_max_items *= 2;
   }
   max = s->nb_max_items;
@@ -208,8 +209,8 @@ tree_entry_t *skt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
 
   W_UNLOCK(&s->tree_lock);
 
-  if (*idx == (max*0.75)) {
-    //skt_subtree_split((closest_node->tree->depth + 1) * 2, s);
+  if (*idx == (uint64_t)(max*0.95)) {
+    //skt_subtree_split(1 << (closest_node->tree->depth + 1), s);
     skt_subtree_split(2, s);
   }
 
