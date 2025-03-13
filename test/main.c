@@ -4,7 +4,7 @@
 #include <string.h>
 
 // 테스트 데이터 크기
-#define TEST_SIZE 10000000
+#define TEST_SIZE 1000000
 #define KV_SIZE 16
 #define MAX_FILE_SIZE (4 * 1024 * 1024) // 4MB
 int load = 0;
@@ -168,6 +168,11 @@ int main() {
     free(item);
   }
   tnt_print();
+  printf("---------------------------------------------");
+  tnt_rebalancing();
+  tnt_print();
+
+
 
   //// 테스트 데이터 업데이트
   //for (uint64_t i = 1; i <= TEST_SIZE; i++) {

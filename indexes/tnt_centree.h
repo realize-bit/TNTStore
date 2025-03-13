@@ -38,8 +38,7 @@ typedef struct centree_node_t {
   struct centree_node_t* left;
   struct centree_node_t* right;
   struct centree_node_t* parent;
-  struct centree_node_t* prev;
-  struct centree_node_t* next;
+  struct centree_node_t* lu_parent;
   unsigned char removed;
   // unsigned char gc;
 } * centree_node;
@@ -88,5 +87,7 @@ struct centree_scan_tmp {
   struct centree_node_t* entries;
   size_t nb_entries;
 };
+
+void centree_balance(centree t);
 
 #endif

@@ -157,26 +157,8 @@ node lookup_node(centree t, void *key, compare_func compare) {
   return n;
 }
 
-node traverse_node_useq(centree t, int key) {
-  node n = NULL;
-  if (key == 0) {  // init
-    enqueue_centnode(bgqueue, t->root);
-  }
-  if (!is_empty(bgqueue)) {
-    n = dequeue_centnode(bgqueue);
-    if (n->left) enqueue_centnode(bgqueue, n->left);
-    if (n->right) enqueue_centnode(bgqueue, n->right);
-  }
-  return n;
-}
-
 tree_entry_t *centree_lookup(centree t, void *key, compare_func compare) {
   node n = lookup_node(t, key, compare);
-  return n == NULL ? NULL : &n->value;
-}
-
-tree_entry_t *centree_traverse_useq(centree t, int seq) {
-  node n = traverse_node_useq(t, seq);
   return n == NULL ? NULL : &n->value;
 }
 
@@ -212,10 +194,72 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
       }
     }
     inserted_node->parent = n;
+    inserted_node->lu_parent = n;
   }
   value->level = level;
   inserted_node->value = *value;
   return inserted_node;
+}
+
+node centree_insert_dual(centree t, void *key, 
+                         void *lk, void *rk, 
+                         tree_entry_t *lv, tree_entry_t *rv, 
+                         compare_func compare) {
+  uint64_t level = 0;
+  node n = t->root;
+
+  if (n == NULL) {
+    return NULL;
+  } else {
+    while (1) {
+      int comp_result = compare(key, n->key);
+
+      level++;
+      if (comp_result < 0) {
+        if (n->left == NULL) {
+          return NULL;
+        } else {
+          n = n->left;
+        }
+      } else if (comp_result > 0) {
+        if (n->right == NULL) {
+          return NULL;
+        } else {
+          n = n->right;
+        }
+      } else {
+        n->left = new_node(lk, lv, NULL, NULL);
+        n->right = new_node(rk, rv, NULL, NULL);
+        lv->level = level;
+        rv->level = level;
+        n->left->parent = n;
+        n->right->parent = n;
+        n->left->lu_parent = n;
+        n->right->lu_parent = n;
+        break;
+      }
+    }
+  }
+
+  return n;
+}
+    
+node traverse_node_useq(centree t, int key) {
+  node n = NULL;
+  if (key == 0) {  // init
+    enqueue_centnode(bgqueue, t->root);
+  }
+  if (!is_empty(bgqueue)) {
+    n = dequeue_centnode(bgqueue);
+    if (n->left) enqueue_centnode(bgqueue, n->left);
+    if (n->right) enqueue_centnode(bgqueue, n->right);
+  }
+  return n;
+}
+
+tree_entry_t *centree_traverse_useq(centree t, int seq) {
+  node n = traverse_node_useq(t, seq);
+  return n == NULL ? NULL : &n->value;
 }
 
 // Function to print binary tree in 2D
@@ -260,108 +304,3 @@ void centree_print(centree t) {
   print2DUtil(n, 0);
   // centree_print_nodes(n, show);
 }
-
-void centree_fill_scan(centree t, node n, size_t max,
-                       struct centree_scan_tmp *res) {
-  if (!n) return;
-  if (n->left) centree_fill_scan(t, n->left, max, res);
-  if (res->nb_entries < max) {
-    res->entries[res->nb_entries] = *n;
-    res->nb_entries++;
-  }
-  if (res->nb_entries < max) centree_fill_scan(t, n->right, max, res);
-}
-
-void centree_fill_scan_up(centree t, node n, size_t max,
-                          struct centree_scan_tmp *res) {
-  if (res->nb_entries < max) {
-    node parent = n->parent;
-    if (!parent) return;
-    if (parent->left == n) {
-      res->entries[res->nb_entries] = *parent;
-      res->nb_entries++;
-      if (res->nb_entries < max) centree_fill_scan(t, parent->right, max, res);
-    }
-    centree_fill_scan_up(t, parent, max, res);
-  }
-}
-
-// static node grandparent(node n);
-// static node sibling(node n);
-// static node uncle(node n);
-// static void replace_node(centree t, node oldn, node newn);
-// static node maximum_node(node root);
-
-// node grandparent(node n) {
-//    assert (n != NULL);
-//    assert (n->parent != NULL); /* Not the root node */
-//    assert (n->parent->parent != NULL); /* Not child of root */
-//    return n->parent->parent;
-// }
-
-// node sibling(node n) {
-//    assert (n != NULL);
-//    assert (n->parent != NULL); /* Root node has no sibling */
-//    if (n == n->parent->left)
-//       return n->parent->right;
-//    else
-//       return n->parent->left;
-// }
-
-// node uncle(node n) {
-//   assert (n != NULL);
-//   assert (n->parent != NULL); /* Root node has no uncle */
-//   assert (n->parent->parent != NULL); /* Children of root have no uncle */
-//   return sibling(n->parent);
-// }
-
-// void replace_node(centree t, node oldn, node newn) {
-//    if (oldn->parent == NULL) {
-//       t->root = newn;
-//    } else {
-//       if (oldn == oldn->parent->left)
-//          oldn->parent->left = newn;
-//       else
-//          oldn->parent->right = newn;
-//    }
-//    if (newn != NULL) {
-//       newn->parent = oldn->parent;
-//    }
-// }
-
-// void centree_delete(centree t, void* key, compare_func compare) {
-//    node child;
-//    node n = lookup_node(t, key, compare);
-//    if (n == NULL) return;  /* Key not found, do nothing */
-//    t->nb_elements--;
-//    if (n->left != NULL && n->right != NULL) {
-//       /* Copy key/value from predecessor and then delete it instead */
-//       node pred = maximum_node(n->left);
-//       n->key   = pred->key;
-//       n->value = pred->value;
-//       n = pred;
-//    }
-//
-//    assert(n->left == NULL || n->right == NULL);
-//    child = n->right == NULL ? n->left  : n->right;
-//    if (node_color(n) == BLACK) {
-//       n->color = node_color(child);
-//       delete_case1(t, n);
-//    }
-//    replace_node(t, n, child);
-//    if (n->parent == NULL && child != NULL)
-//       child->color = BLACK;
-//    free(n);
-//
-//    verify_properties(t);
-//
-//    t->last_visited_node = NULL;
-// }
-
-// static node maximum_node(node n) {
-//    assert (n != NULL);
-//    while (n->right != NULL) {
-//       n = n->right;
-//    }
-//    return n;
-// }

@@ -392,6 +392,23 @@ again:
   }
 }
 
+static uint64_t io_wait = 0;
+
+static void check_and_handle_tnt(uint64_t real_start, uint64_t dist_time) {
+    uint64_t now, dist_util;
+
+    if (io_wait <= 5)
+      return;
+
+    rdtscll(now);
+    uint64_t elapsed = now - real_start;
+    dist_util = (dist_time * 100LU / elapsed);
+    
+    if (dist_util > 50) {
+        tnt_rebalancing();
+    }
+}
+
 static void *worker_slab_init(void *pdata) {
   struct slab_context *ctx = pdata;
 
@@ -435,6 +452,11 @@ static void *worker_slab_init(void *pdata) {
         worker_dequeue_requests(ctx);
     __5  // Process queue
 
+    if (ctx->worker_id == nb_distributors) {
+      rdtscll(__breakdown.now);
+      uint64_t elapsed = __breakdown.now - __breakdown.real_start;
+      io_wait = (__breakdown.evt4 * 100LU / elapsed);
+    }
         show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
                                 "io_getevents", "io_cb", "wait", "slab_cb");
   }
@@ -457,6 +479,7 @@ static void *worker_distributor_init(void *pdata) {
   ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
   __sync_add_and_fetch(&nb_workers_ready, 1);
 
+  declare_breakdown;
   while (1) {
     ctx->rdt++;
     volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
@@ -468,8 +491,13 @@ static void *worker_distributor_init(void *pdata) {
       }
       pending = ctx->sent_callbacks - ctx->processed_callbacks;
     }
+    __4
 
     worker_dequeue_requests(ctx);
+    __5  // Process queue
+
+    //if (ctx->worker_id == 0)
+    //    check_and_handle_tnt(__breakdown.real_start, __breakdown.evt5);
   }
 
   return NULL;

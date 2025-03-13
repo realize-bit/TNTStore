@@ -490,9 +490,9 @@ index_entry_t *tnt_index_lookup(void *item) {
     R_UNLOCK(&s->tree_lock);
 
     // 부모 노드로 이동
-    n = n->parent;  // parent 필드를 추가하고, 부모 노드로 이동
+    n = n->lu_parent;  // parent 필드를 추가하고, 부모 노드로 이동
   }
-  printf("%d", try);
+  // printf("%d", try);
 
   if (e) return e;
   return NULL;
@@ -571,6 +571,12 @@ void tnt_print(void) {
   R_LOCK(&centree_root_lock);
   centree_print(centree_root);
   R_UNLOCK(&centree_root_lock);
+}
+
+void tnt_rebalancing(void) {
+  W_LOCK(&centree_root_lock);
+  centree_balance(centree_root);
+  W_UNLOCK(&centree_root_lock);
 }
 
 uint64_t add_number_of_subtree(uint64_t n) {

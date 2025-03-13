@@ -48,6 +48,7 @@ int tnt_index_invalid(void *item);
 
 uint64_t add_number_of_subtree(uint64_t n);
 void tnt_print(void);
+void tnt_rebalancing(void);
 void inc_empty_tree();
 
 background_queue *bgq_get(enum fsst_mode m);
