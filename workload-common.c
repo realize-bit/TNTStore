@@ -67,7 +67,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   __sync_fetch_and_sub(&s->update_ref, 1);
 
   //printf("level %lu, %d\n", ((centree_node)s->centree_node)->value.level, rc_thr);
-  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
+  if (s->full && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
     !((centree_node)s->centree_node)->removed) {
     enqueue = 1;
@@ -180,6 +180,7 @@ void repopulate_db(struct workload *w) {
         "be sorted and scans much faster -- unfair vs other systems)\n");
     pos = malloc(w->nb_items_in_db * sizeof(*pos));
     for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = i;
+    //for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
     shuffle(pos,
             nb_inserts);  // To be fair to other systems, we shuffle items in
                           // the DB so that the DB is not fully sorted by luck
@@ -351,6 +352,10 @@ void run_workload(struct workload *w, bench_t b) {
       pdata[i].benchmark = b;
       if (i) pthread_create(&threads[i], NULL, do_workload_thread, &pdata[i]);
     }
+
+    //tnt_rebalancing();
+    //fsst_worker_init();
+
     do_workload_thread(&pdata[0]);
     for (int i = 1; i < w->nb_load_injectors; i++)
       pthread_join(threads[i], NULL);

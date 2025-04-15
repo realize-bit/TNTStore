@@ -598,7 +598,7 @@ skip:
 
   R_LOCK(&s->tree_lock);
 
-  if (s->full && ((centree_node)s->centree_node)->value.level <= rc_thr &&
+  if (s->full && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
     enqueue = 1;

@@ -5,24 +5,26 @@ using namespace std;
 using namespace btree;
 
 extern "C" {
-static inline void set_inval(size_t *addr) {
-  asm("btsl %1,%0" : "+m"(*(size_t *)addr) : "Ir"(63));
+static inline void set_inval(uint32_t *addr) {
+  asm("btsl %1, %0" : "+m"(*addr) : "Ir"(31));
 }
-static inline int tas_inval(size_t *addr) {
+
+static inline int tas_inval(uint32_t *addr) {
   int oldbit;
-  asm("lock; btsl %2,%1\n\tsbbl %0,%0" : "=r"(oldbit), "=m"(*addr) : "r"(63));
+  asm("lock; btsl %2, %1\n\tsbbl %0, %0" : "=r"(oldbit), "=m"(*addr) : "r"(31));
   return oldbit;
 }
-static inline unsigned char test_inval(size_t *addr) {
+
+static inline unsigned char test_inval(uint32_t *addr) {
   unsigned char v;
-  const size_t *p = addr;
-  asm("btl %2,%1; setc %0" : "=qm"(v) : "m"(*p), "Ir"(63));
+  const uint32_t *p = addr;
+  asm("btl %2, %1; setc %0" : "=qm"(v) : "m"(*p), "Ir"(31));
   return v;
 }
 subtree_t *subtree_create() {
   subtree_t *t = (subtree_t*) malloc(sizeof(subtree_t));
-  btree_map<uint64_t, uint64_t> *b =
-      new btree_map<uint64_t, uint64_t>();
+  btree_map<uint64_t, uint32_t> *b =
+      new btree_map<uint64_t, uint32_t>();
   t->tree = b;
   return t;
 }
@@ -37,8 +39,8 @@ int subtree_find(subtree_t *t, unsigned char *k, size_t len,
   // printf("# \tLookup Debug hash 2: %hhu\n", *k);
   uint64_t hash = *(uint64_t *)k;
   // printf("# \tLookup Debug hash 3: %lu\n", hash);
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   auto i = b->find(hash);
   if (i != b->end()) {
     index_entry_t cur = {{(struct slab*)t->slab}, {(uint64_t)i->second}};
@@ -50,8 +52,8 @@ int subtree_find(subtree_t *t, unsigned char *k, size_t len,
 }
 int subtree_set_invalid(subtree_t *t, unsigned char *k, size_t len) {
   uint64_t hash = *(uint64_t *)k;
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   auto i = b->find(hash);
   if (i != b->end()) {
     if (!tas_inval(&i->second)) {
@@ -68,23 +70,23 @@ int subtree_set_invalid(subtree_t *t, unsigned char *k, size_t len) {
 
 int subtree_delete(subtree_t *t, unsigned char *k, size_t len) {
   uint64_t hash = *(uint64_t *)k;
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   return b->erase(hash);
 }
 
 void subtree_insert(subtree_t *t, unsigned char *k, size_t len,
                     struct index_entry *e) {
   uint64_t hash = *(uint64_t *)k;
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
-  b->insert(make_pair(hash, e->slab_idx));
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
+  b->insert(make_pair(hash, (uint32_t)e->slab_idx));
 }
 
 int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),
                          void *data) {
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   int n = 0;
   auto i = b->begin();
   while (i != b->end()) {
@@ -94,8 +96,8 @@ int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),
   return n;
 }
 int subtree_forall_invalid(subtree_t *t, void *data, void (*cb)(void *slab, uint64_t slab_idx)) {
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   int count = 0;
   auto i = b->begin();
   while (i != b->end()) {
@@ -117,14 +119,14 @@ int subtree_forall_invalid(subtree_t *t, void *data, void (*cb)(void *slab, uint
 
 
 void subtree_free(subtree_t *t) {
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   delete b;
   free(t);
 }
 void subtree_all_free(subtree_t *t) {
-  btree_map<uint64_t, uint64_t> *b =
-      static_cast<btree_map<uint64_t, uint64_t> *>(t->tree);
+  btree_map<uint64_t, uint32_t> *b =
+      static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   b->erase(b->begin(), b->end());
   delete b;
   free(t);

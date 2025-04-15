@@ -3,6 +3,7 @@
 
 static int cur = 0;
 static char *vict_file_fsst = NULL;
+static int doing = 0;
 
 void check_and_remove_tree(struct slab_callback *cb, void *item) {
   struct slab *s = cb->fsst_slab;
@@ -84,6 +85,8 @@ tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
 #define HOT_BATCH 16384
 
 static void *fsst_worker(void *pdata) {
+  //tnt_rebalancing();
+
   vict_file_fsst = aligned_alloc(PAGE_SIZE, MAX_FILE_SIZE);
 
   if (!vict_file_fsst) die("FSST Static Buf Error\n");
@@ -100,6 +103,7 @@ static void *fsst_worker(void *pdata) {
     }
 
     if (!bgq_is_empty(FSST)) {
+      doing = 1;
       for (size_t i = 0; i < NODE_BATCH; i++) {
         tree_entry_t *victim = (tree_entry_t *)bgq_dequeue(FSST);
         if (!victim) goto fsst_sleep;
@@ -137,12 +141,13 @@ static void *fsst_worker(void *pdata) {
 #endif
 
   fsst_sleep:
+    doing = 0;
     sleep(1);
   }
 }
 
 void sleep_until_fsstq_empty(void) {
-  while (!bgq_is_empty(FSST)) {
+  while (!bgq_is_empty(FSST) || doing) {
     NOP10();
   }
   return;

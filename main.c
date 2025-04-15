@@ -14,8 +14,8 @@ int main(int argc, char **argv) {
   /* Definition of the workload, if changed you need to erase the DB before
    * relaunching */
   struct workload w = {
-      .api = &YCSB,
-      //.api = &DBBENCH,
+      //.api = &YCSB,
+      .api = &DBBENCH,
       .nb_items_in_db = 100000000LU,
       .nb_load_injectors = 4,
   };
@@ -45,7 +45,8 @@ int main(int argc, char **argv) {
   printf("# \tThread pinning: %s\n", PINNING ? "yes" : "no");
   printf("# \tBench: %s (%lu elements)\n", w.api->api_name(), w.nb_items_in_db);
 
-  rc_thr = log2((w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) )) * 0.7;
+  //rc_thr = log2((w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) )) * 0.7;
+  rc_thr = (w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) ) * 0.05;
   printf("RC THR: %d\n", rc_thr);
 
   /* Initialization of random library */
@@ -75,11 +76,9 @@ int main(int argc, char **argv) {
   }
   stop_timer("Init found %lu elements", get_database_size());
 
-#if WITH_RC
-  fsst_worker_init();
-#endif
 
   /* Add missing items if any */
+  //system("cat /proc/vmstat | grep psw");
   repopulate_db(&w);
   load = 0;
 
@@ -88,27 +87,31 @@ int main(int argc, char **argv) {
   }
   stop_timer("Remaining batch loading");
 
-#if WITH_RC
-  start_timer {
-    sleep_until_fsstq_empty();
-  }
-  stop_timer("Remaining RC operations");
-#endif
-
   // flush_batched_load();
 
   print = 1;
   cache_hit = 0;
 
   /* Launch benchs */
+  //system("cat /proc/vmstat | grep psw");
   bench_t workload, workloads[] = {
 			SELECTED_BENCH,
                     };
-
   // sleep(5);
   // make_fsst();
   // sleep(5);
   // cache_hit = 0;
+
+  //start_timer {
+  //  tnt_rebalancing();
+  //}
+  //stop_timer("Rebalancing operations");
+
+  //fsst_worker_init();
+  //start_timer {
+  //  sleep_until_fsstq_empty();
+  //}
+  //stop_timer("Reinsertion operations");
 
   foreach (workload, workloads) {
     if (workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
