@@ -14,7 +14,7 @@ function umount_mount {
 }
 
 workload=( "DBBENCH" )
-mem=( "32" "16" "8" "4" "2" )
+mem=( "64" )
 
 for ((i=1; i<=3; i++))
 do
@@ -24,7 +24,7 @@ do
 		do
 			echo ${w} - ${m} - ${i}
 			umount_mount
-			numactl -N 0 -m 0 ./bin/4.3/${m}G_100M_${w} 1 48 12 > ${dir}/100M_${m}G_${w}_60t_${i}
+			numactl -N 0 ./bin/4.3/${m}G_100M_${w} 1 48 12 > ${dir}/100M_${m}G_${w}_60t_${i}
 			sleep 5
 		done
 	done

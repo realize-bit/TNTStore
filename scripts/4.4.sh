@@ -1,49 +1,119 @@
 #!/bin/bash
 
 disk="/dev/nvme1n1"
-RDIR="/home/jongseok/tnt/evaluation/paper_results/4/4.4/tntstore"
+dir="/home/jongseok/tnt/evaluation/2025_paper_results/4/4.4"
 
 function umount_mount {
-	sudo swapoff -a
 	sudo umount /scratch0
-
-	sudo mkfs.ext4 -E nodiscard -F ${disk}
-	sudo mount ${disk} /scratch0
+	sudo mkfs.ext4 -F ${disk}
+	sudo mount ${disk} /scratch0/
 	sudo rm -rf /scratch0/*
-	sudo chown jongseok:jongseok /scratch0
+	sudo chown jongseok:jongseok /scratch0/
 	sudo mkdir /scratch0/kvell
-
-	dd if=/dev/zero of=/scratch0/swap.img bs=1024 count=8388608
-	sudo chmod 600 /scratch0/swap.img 
-	sudo chown root:root /scratch0/swap.img 
-	mkswap /scratch0/swap.img 
-	sudo swapon /scratch0/swap.img
-
-	sudo echo 3 > /proc/sys/vm/drop_caches
 	sleep 5
 }
 
+#workload=( "C_Zipf" "C_Unif" "A_Zipf" "A_Unif" "DBBENCH" )
+#mem=( "8" )
+#
+#for ((i=1; i<=3; i++))
+#do
+#	for m in ${mem[@]}
+#	do
+#		for w in ${workload[@]}
+#		do
+#			echo ${w} - ${m} - ${i}
+#			umount_mount
+#			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND 1 48 12 > ${dir}/DESCEND_100M_${m}G_${w}_60t_${i}
+#			sleep 5
+#		done
+#	done
+#done
+#
+#for ((i=1; i<=3; i++))
+#do
+#	for m in ${mem[@]}
+#	do
+#		for w in ${workload[@]}
+#		do
+#			echo ${w} - ${m} - ${i}
+#			umount_mount
+#			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_ASCEND 1 48 12 > ${dir}/ASCEND_100M_${m}G_${w}_60t_${i}
+#			sleep 5
+#		done
+#	done
+#done
 
+workload=( "A_Zipf" )
+mem=( "8" )
 
-ulimit -n 500000
-echo 10737418240 > /sys/fs/cgroup/memory/eval/memory.limit_in_bytes
-workload=( "C_Zipf" "C_Unif" "A_Zipf" "A_Unif" )
-mem=( "3" "4" "5" "6" "7" "8" )
+#for ((i=1; i<=1; i++))
+#do
+#	for m in ${mem[@]}
+#	do
+#		for w in ${workload[@]}
+#		do
+#			echo ${w} - ${m} - ${i}
+#			umount_mount
+#			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND_OFF_RB_RI 1 48 12 > ${dir}/DESCEND_OFF_RB_RI_100M_${m}G_${w}_60t_${i}
+#			sleep 5
+#		done
+#	done
+#done
 
-for ((i=1; i<=3; i++))
+for ((i=1; i<=1; i++))
 do
 	for m in ${mem[@]}
 	do
 		for w in ${workload[@]}
 		do
-			echo 10737418240 > /sys/fs/cgroup/memory/eval/memory.limit_in_bytes
-			echo ${m}G - $w - ${i}
+			echo ${w} - ${m} - ${i}
 			umount_mount
-			echo $$ > /sys/fs/cgroup/memory/eval/cgroup.procs
-			cat /proc/vmstat | grep psw > ${RDIR}/swap_100M_${m}G_${w}_60t_${i}
-			numactl -N 0 -m 0 ./bin/twice/${m}G_100M_${w} 1 48 12 >> ${RDIR}/swap_100M_${m}G_${w}_60t_${i}
-			cat /proc/vmstat | grep psw >> ${RDIR}/swap_100M_${m}G_${w}_60t_${i}
+			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND_OFF_RB_RI05 1 48 12 > ${dir}/DESCEND_OFF_RB_RI05_100M_${m}G_${w}_60t_${i}
 			sleep 5
 		done
 	done
 done
+
+for ((i=1; i<=1; i++))
+do
+	for m in ${mem[@]}
+	do
+		for w in ${workload[@]}
+		do
+			echo ${w} - ${m} - ${i}
+			umount_mount
+			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND_OFF_RB_RI10 1 48 12 > ${dir}/DESCEND_OFF_RB_RI10_100M_${m}G_${w}_60t_${i}
+			sleep 5
+		done
+	done
+done
+
+for ((i=1; i<=1; i++))
+do
+	for m in ${mem[@]}
+	do
+		for w in ${workload[@]}
+		do
+			echo ${w} - ${m} - ${i}
+			umount_mount
+			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND_OFF_RB_RI20 1 48 12 > ${dir}/DESCEND_OFF_RB_RI20_100M_${m}G_${w}_60t_${i}
+			sleep 5
+		done
+	done
+done
+
+for ((i=1; i<=1; i++))
+do
+	for m in ${mem[@]}
+	do
+		for w in ${workload[@]}
+		do
+			echo ${w} - ${m} - ${i}
+			umount_mount
+			numactl -N 0 -m 0 ./bin/4.4/${m}G_100M_${w}_DESCEND_OFF_RB_RI40 1 48 12 > ${dir}/DESCEND_OFF_RB_RI40_100M_${m}G_${w}_60t_${i}
+			sleep 5
+		done
+	done
+done
+
