@@ -18,15 +18,13 @@
 #define MEMORY_INDEX TNT
 #define PAGECACHE_INDEX BTREE
 
-typedef enum {
-    ASCEND = 1,
-    DESCEND = 2,
-    RANDOM = 3
-} InsertOrder;
+#define ASCEND 1
+#define DESCEND 2
+#define RANDOM 3
 
-#define INSERT_MODE RANDOM
-// #define INSERT_MODE ASCEND
-// #define INSERT_MODE DESCEND
+//#define INSERT_MODE RANDOM
+//#define INSERT_MODE ASCEND
+#define INSERT_MODE DESCEND
 
 /* Queue depth management */
 #define QUEUE_DEPTH 64

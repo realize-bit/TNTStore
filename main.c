@@ -14,8 +14,8 @@ int main(int argc, char **argv) {
   /* Definition of the workload, if changed you need to erase the DB before
    * relaunching */
   struct workload w = {
-      //.api = &YCSB,
-      .api = &DBBENCH,
+      .api = &YCSB,
+      //.api = &DBBENCH,
       .nb_items_in_db = 100000000LU,
       .nb_load_injectors = 4,
   };

@@ -83,7 +83,7 @@ static void process_linked_callbacks(struct io_context *ctx) {
   declare_debug_timer;
 
   size_t nb_linked = 0;
-  start_debug_timer {
+  //start_debug_timer {
     struct linked_callbacks *linked_cb;
     linked_cb = ctx->linked_callbacks;
     ctx->linked_callbacks = NULL;  // reset the list
@@ -102,8 +102,7 @@ static void process_linked_callbacks(struct io_context *ctx) {
       linked_cb = next;
       nb_linked++;
     }
-  }
-  stop_debug_timer(10000, "%lu linked callbacks\n", nb_linked);
+  //} stop_debug_timer(10000, "%lu linked callbacks\n", nb_linked);
 }
 
 /*
@@ -327,7 +326,7 @@ void worker_ioengine_get_completed_ios(struct io_context *ctx) {
 
   if (ctx->ios_sent_to_disk == 0) return;
 
-  start_debug_timer {
+  //start_debug_timer {
     ret = io_getevents(ctx->ctx, ctx->ios_sent_to_disk - ret,
                        ctx->ios_sent_to_disk - ret, &ctx->events[ret], NULL);
     // while (ret < ctx->ios_sent_to_disk) {
@@ -340,8 +339,7 @@ void worker_ioengine_get_completed_ios(struct io_context *ctx) {
       die("Problem: only got %d answers out of %lu enqueued IO requests\n", ret,
           ctx->ios_sent_to_disk);
     }
-  }
-  stop_debug_timer(10000, "io_getevents took more than 10ms!!");
+  //} stop_debug_timer(10000, "io_getevents took more than 10ms!!");
 }
 
 void worker_ioengine_process_completed_ios(struct io_context *ctx) {
@@ -350,7 +348,7 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
 
   if (ctx->ios_sent_to_disk == 0) return;
 
-  start_debug_timer {
+  //start_debug_timer {
     // Enqueue completed IO requests
     for (size_t i = 0; i < ret; i++) {
       struct iocb *cb = (void *)ctx->events[i].obj;
@@ -388,10 +386,7 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
 
     // We might have "linked callbacks" so process them
     process_linked_callbacks(ctx);
-  }
-  stop_debug_timer(
-      10000, "rest of worker_ioengine_process_completed_ios (%d requests)",
-      ret);
+  //} stop_debug_timer( 10000, "rest of worker_ioengine_process_completed_ios (%d requests)", ret);
 
   // Ok, now the main thread can push more requests
   ctx->processed_io += ctx->ios_sent_to_disk;
