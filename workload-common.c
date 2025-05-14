@@ -180,10 +180,18 @@ void repopulate_db(struct workload *w) {
         "might take a while. (Feel free to comment but then the database will "
         "be sorted and scans much faster -- unfair vs other systems)\n");
     pos = malloc(w->nb_items_in_db * sizeof(*pos));
+#if INSERT_MODE == ASCEND || INSERT_MODE == RANDOM
     for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = i;
-    //for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
+#endif
+
+#if INSERT_MODE == DESCEND
+    for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
+#endif
+
+#if INSERT_MODE == RANDOM
     shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
     //shuffle_ranges(pos, nb_inserts, 100000000);  
+#endif
   }
   stop_timer("Big array of random positions");
 

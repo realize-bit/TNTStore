@@ -32,18 +32,21 @@ int main(int argc, char **argv) {
   /* Pretty printing useful info */
   printf("# Configuration:\n");
   printf("# \tPage cache size: %lu GB\n", PAGE_CACHE_SIZE / 1024 / 1024 / 1024);
-  printf("# \tWorkers: %d working on %d disks\n",
-         nb_disks * nb_workers_per_disk, nb_disks);
+  printf("# \tDisks: %d, I/O Workers: %d, Distributors: %d\n",
+         nb_disks, nb_workers_per_disk, nb_distributors_per_disk);
   printf(
       "# \tIO configuration: %d queue depth (capped: %s, extra waiting: %s)\n",
       QUEUE_DEPTH, NEVER_EXCEED_QUEUE_DEPTH ? "yes" : "no",
       WAIT_A_BIT_FOR_MORE_IOS ? "yes" : "no");
   printf("# \tQueue configuration: %d maximum pending callbaks per worker\n",
          MAX_NB_PENDING_CALLBACKS_PER_WORKER);
-  printf("# \tDatastructures: %d (memory index) %d (pagecache)\n", MEMORY_INDEX,
-         PAGECACHE_INDEX);
   printf("# \tThread pinning: %s\n", PINNING ? "yes" : "no");
   printf("# \tBench: %s (%lu elements)\n", w.api->api_name(), w.nb_items_in_db);
+  printf("# \tKV_SIZE: %d, MAX_FILE_SIZE: %lu\n", KV_SIZE, MAX_FILE_SIZE);
+  printf("# \tInsert mode: %s\n", 
+        INSERT_MODE == ASCEND ? "ASCEND" : 
+        INSERT_MODE == DESCEND ? "DESCEND" : 
+        INSERT_MODE == RANDOM ? "RANDOM" : "UNKNOWN");
 
   //rc_thr = log2((w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) )) * 0.7;
   rc_thr = (w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) ) * 0.05;
