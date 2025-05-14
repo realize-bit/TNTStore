@@ -101,6 +101,12 @@ int main(int argc, char **argv) {
   // make_fsst();
   // sleep(5);
   // cache_hit = 0;
+  //tnt_rebalancing();
+  fsst_worker_init();
+  start_timer {
+    sleep_until_fsstq_empty();
+  }
+  stop_timer("Remaining RC operations");
 
   //start_timer {
   //  tnt_rebalancing();
@@ -130,6 +136,10 @@ int main(int argc, char **argv) {
     cache_hit = 0;
   }
   tnt_print();
+
+#if DEBUG
+  print_slow_payloads();
+#endif
 
   /*
   foreach(workload, workloads) {

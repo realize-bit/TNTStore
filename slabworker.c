@@ -162,7 +162,6 @@ static void enqueue_slab_callback(struct slab_context *ctx,
   ctx->callbacks[buffer_idx] = callback;
   add_time_in_payload(callback, 0);
   submit_slab_buffer(ctx, buffer_idx);
-  add_time_in_payload(callback, 1);
 }
 
 /*
@@ -263,13 +262,13 @@ again:
     struct slab_callback *callback =
         ctx->callbacks[ctx->processed_callbacks % ctx->max_pending_callbacks];
     enum slab_action action = callback->action;
-    add_time_in_payload(callback, 2);
+    add_time_in_payload(callback, 1);
 
     index_entry_t *e = NULL;
     // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
     if (action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP &&
         action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
-      e = tnt_index_lookup(callback->item);
+      e = tnt_index_lookup(callback, callback->item);
 
     // printf("(%d) i: %lu, cb: %p\n", ctx->worker_id, i, callback->cb);
     switch (action) {
@@ -303,6 +302,7 @@ again:
         } else {
           callback->slab =
               get_slab(ctx, callback->item, &callback->slab_idx, e);
+          add_time_in_payload(callback, 4);
           add_item_async(callback);
         }
         break;
@@ -314,11 +314,13 @@ again:
           __sync_add_and_fetch(&try_fsst, 1);
           callback->slab =
               get_slab(ctx, callback->item, &callback->slab_idx, e);
+          add_time_in_payload(callback, 4);
           add_item_async(callback);
           // read_item_async_from_fsst(callback);
           break;
         }
 
+        add_time_in_payload(callback, 4);
         callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
 
 #if DEBUG

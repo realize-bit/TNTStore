@@ -43,7 +43,7 @@ tree_entry_t *tnt_traverse_use_seq(int seq);
 int tnt_get_nodes_at_level(int level, background_queue *q);
 
 void tnt_index_add(struct slab_callback *cb, void *item);
-index_entry_t *tnt_index_lookup(void *item);
+index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item);
 int tnt_index_invalid(void *item);
 
 uint64_t add_number_of_subtree(uint64_t n);

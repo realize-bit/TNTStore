@@ -265,4 +265,5 @@
  */
 uint64_t cycles_to_us(uint64_t cycles);
 void shuffle(size_t *array, size_t n);
+void shuffle_ranges(size_t *array, size_t n, size_t range_size);
 void pin_me_on(int core);

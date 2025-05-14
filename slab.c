@@ -535,6 +535,7 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   //  }
   //}
 
+  add_time_in_payload(cb, 6);
   W_LOCK(&s->tree_lock);
     // CASE 2에서 여러 쓰레드가 여기 도달 가능.
     // 두 쓰레드들 중 가장 최신의 애가 먼저 lock 잡고 추가했다면
@@ -577,6 +578,8 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
 
   W_UNLOCK(&s->tree_lock);
 
+  add_time_in_payload(cb, 7);
+
   R_LOCK(&old_s->tree_lock);
   if (old_s->min == -1)
     removed = 1;
@@ -586,6 +589,8 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
       __sync_fetch_and_sub(&old_s->nb_items, 1);
   }
   R_UNLOCK(&old_s->tree_lock);
+
+  add_time_in_payload(cb, 8);
 
 
   if (!removed) {
@@ -601,6 +606,7 @@ skip:
   if (s->full && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
+    printf("Enqueue: %lu, %d", s->seq, rc_thr);
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
   }

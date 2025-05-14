@@ -70,6 +70,7 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   if (s->full && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
     !((centree_node)s->centree_node)->removed) {
+    printf("Enqueue: %lu, %d", s->seq, rc_thr);
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
   }
@@ -181,9 +182,8 @@ void repopulate_db(struct workload *w) {
     pos = malloc(w->nb_items_in_db * sizeof(*pos));
     for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = i;
     //for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
-    shuffle(pos,
-            nb_inserts);  // To be fair to other systems, we shuffle items in
-                          // the DB so that the DB is not fully sorted by luck
+    shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
+    //shuffle_ranges(pos, nb_inserts, 100000000);  
   }
   stop_timer("Big array of random positions");
 
@@ -241,51 +241,167 @@ void free_callback(struct slab_callback *cb, void *item) {
   free(cb);
 }
 
+#if DEBUG
+#define SLOW_CAP 100000
+
+typedef struct {
+  uint64_t elapsed;              // 사이클 단위 경과 시간
+  struct slab_callback *cb;      // 해당 콜백
+} slow_entry_t;
+
+// min‐heap(가장 작은 elapsed가 root)
+static slow_entry_t slow_heap[SLOW_CAP];
+static size_t      slow_size = 0;
+static pthread_mutex_t slow_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// 힙 연산
+static void sift_up(size_t idx) {
+  while (idx > 0) {
+    size_t parent = (idx - 1) / 2;
+    if (slow_heap[parent].elapsed <= slow_heap[idx].elapsed) break;
+    slow_entry_t tmp = slow_heap[parent];
+    slow_heap[parent] = slow_heap[idx];
+    slow_heap[idx] = tmp;
+    idx = parent;
+  }
+}
+static void sift_down(size_t idx) {
+  for (;;) {
+    size_t l = 2*idx + 1;
+    if (l >= slow_size) break;
+    size_t r = l + 1;
+    size_t smallest = (r < slow_size && slow_heap[r].elapsed < slow_heap[l].elapsed)
+                      ? r : l;
+    if (slow_heap[smallest].elapsed >= slow_heap[idx].elapsed) break;
+    slow_entry_t tmp = slow_heap[idx];
+    slow_heap[idx] = slow_heap[smallest];
+    slow_heap[smallest] = tmp;
+    idx = smallest;
+  }
+}
+
+// 새 기록을 힙에 추가 (100k 미만이거나, root보다 크면 교체)
+static unsigned char add_slow_entry(uint64_t elapsed, struct slab_callback *cb) {
+  unsigned char stored = 0;
+  pthread_mutex_lock(&slow_lock);
+  if (slow_size < SLOW_CAP) {
+    slow_heap[slow_size].elapsed = elapsed;
+    slow_heap[slow_size].cb      = cb;
+    sift_up(slow_size++);
+    stored = 1;
+  } else if (elapsed > slow_heap[0].elapsed) {
+    slow_heap[0].elapsed = elapsed;
+    slow_heap[0].cb      = cb;
+    sift_down(0);
+    stored = 1;
+  }
+  pthread_mutex_unlock(&slow_lock);
+  return stored;
+}
+static int cmp_desc(const void *a, const void *b) {
+  uint64_t ea = ((slow_entry_t*)a)->elapsed;
+  uint64_t eb = ((slow_entry_t*)b)->elapsed;
+  return (ea < eb) ? 1 : (ea > eb) ? -1 : 0;
+}
+
+void print_slow_payloads(void) {
+  pthread_mutex_lock(&slow_lock);
+  size_t n = slow_size;
+  slow_entry_t *arr = malloc(n * sizeof(*arr));
+  for (size_t i = 0; i < n; i++) arr[i] = slow_heap[i];
+  pthread_mutex_unlock(&slow_lock);
+
+  // 오래된 순으로 정렬
+  qsort(arr, n, sizeof(*arr), cmp_desc);
+
+  printf("=== TOP %zu SLOW PAYLOADS ===\n", n);
+  for (size_t i = 0; i < n; i++) {
+    struct slab_callback *cb = arr[i].cb;
+    struct item_metadata *meta = (struct item_metadata *)cb->item;
+    char *item_key = &cb->item[sizeof(*meta)];
+    uint64_t key = *(uint64_t *)item_key;
+    uint64_t start;
+    printf("[%lu] key=%lu elapsed=%lu, ", i, key, cycles_to_us(arr[i].elapsed));
+    // payload 내부 시퀀스 덤프
+    start = get_time_from_payload(cb, 0);
+
+    for (int p = 1; p < 20; p++) {
+      uint64_t t = get_time_from_payload(cb, p);
+      if (!t) break;
+      printf("%lu: %lu, ", get_origin_from_payload(cb, p), cycles_to_us(t - start));
+    }
+    printf("\n");
+    // 메모리 정리
+    if (cb->cb_cb == compute_stats || !cb->cb_cb) free(cb->item);
+    free_payload(cb);
+    free(cb);
+  }
+
+  free(arr);
+}
+#endif
+
 void compute_stats(struct slab_callback *cb, void *item) {
   uint64_t start, end;
   declare_debug_timer;
   start_debug_timer {
     start = get_time_from_payload(cb, 0);
+    add_time_in_payload(cb, 9);
     rdtscll(end);
-    add_timing_stat(end - start);
-    if (DEBUG &&
-        cycles_to_us(end - start) > 10000) {  // request took more than 10ms
-      printf(
-          "Request [%lu: %lu] [%lu: %lu] [%lu: %lu] [%lu: %lu] [%lu: %lu] "
-          "[%lu: %lu] [%lu: %lu] [%lu]\n",
-          get_origin_from_payload(cb, 1),
-          get_time_from_payload(cb, 1) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 1) - start),
-          get_origin_from_payload(cb, 2),
-          get_time_from_payload(cb, 2) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 2) - start),
-          get_origin_from_payload(cb, 3),
-          get_time_from_payload(cb, 3) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 3) - start),
-          get_origin_from_payload(cb, 4),
-          get_time_from_payload(cb, 4) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 4) - start),
-          get_origin_from_payload(cb, 5),
-          get_time_from_payload(cb, 5) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 5) - start),
-          get_origin_from_payload(cb, 6),
-          get_time_from_payload(cb, 6) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 6) - start),
-          get_origin_from_payload(cb, 7),
-          get_time_from_payload(cb, 7) < start
-              ? 0
-              : cycles_to_us(get_time_from_payload(cb, 7) - start),
-          cycles_to_us(end - start));
+    uint64_t diff = end - start;
+    add_timing_stat(diff);
+
+#if DEBUG
+    unsigned char kept = add_slow_entry(diff, cb);
+#endif
+
+    /*if (DEBUG &&*/
+    /*    cycles_to_us(end - start) > 10000) {  // request took more than 10ms*/
+    /*  printf(*/
+    /*      "Request [%lu: %lu] [%lu: %lu] [%lu: %lu] [%lu: %lu] [%lu: %lu] "*/
+    /*      "[%lu: %lu] [%lu: %lu] [%lu]\n",*/
+    /*      get_origin_from_payload(cb, 1),*/
+    /*      get_time_from_payload(cb, 1) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 1) - start),*/
+    /*      get_origin_from_payload(cb, 2),*/
+    /*      get_time_from_payload(cb, 2) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 2) - start),*/
+    /*      get_origin_from_payload(cb, 3),*/
+    /*      get_time_from_payload(cb, 3) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 3) - start),*/
+    /*      get_origin_from_payload(cb, 4),*/
+    /*      get_time_from_payload(cb, 4) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 4) - start),*/
+    /*      get_origin_from_payload(cb, 5),*/
+    /*      get_time_from_payload(cb, 5) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 5) - start),*/
+    /*      get_origin_from_payload(cb, 6),*/
+    /*      get_time_from_payload(cb, 6) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 6) - start),*/
+    /*      get_origin_from_payload(cb, 7),*/
+    /*      get_time_from_payload(cb, 7) < start*/
+    /*          ? 0*/
+    /*          : cycles_to_us(get_time_from_payload(cb, 7) - start),*/
+    /*      cycles_to_us(end - start));*/
+    /*}*/
+
+if (!( 
+#if DEBUG
+    kept 
+#else
+    0
+#endif
+      )) {
+      if (cb->cb_cb == compute_stats || !cb->cb_cb) free(cb->item);
+      if (DEBUG) free_payload(cb);
+      if (cb->cb_cb == compute_stats || !cb->cb_cb) free(cb);
     }
-    if (cb->cb_cb == compute_stats || !cb->cb_cb) free(cb->item);
-    if (DEBUG) free_payload(cb);
-    if (cb->cb_cb == compute_stats || !cb->cb_cb) free(cb);
   }
   stop_debug_timer(5000, "Callback took more than 5ms???");
 }

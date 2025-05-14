@@ -69,4 +69,9 @@ struct slab_callback *bench_cb(void);
 
 struct workload_api *get_api(bench_t b);
 void add_in_tree(struct slab_callback *cb, void *item);
+
+#if DEBUG
+void print_slow_payloads(void);
+#endif
+
 #endif

@@ -440,7 +440,7 @@ void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key) {
   R_UNLOCK(&centree_root_lock);
 }
 
-index_entry_t *tnt_index_lookup(void *item) {
+index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   centree t = centree_root;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
@@ -463,6 +463,7 @@ index_entry_t *tnt_index_lookup(void *item) {
     }
   }
   R_UNLOCK(&centree_root_lock);
+  add_time_in_payload(cb, 2);
 
   // Leaf node에서 upward 탐색
   while (n != NULL) {
@@ -492,6 +493,7 @@ index_entry_t *tnt_index_lookup(void *item) {
     // 부모 노드로 이동
     n = n->lu_parent;  // parent 필드를 추가하고, 부모 노드로 이동
   }
+  add_time_in_payload(cb, 3);
   // printf("%d", try);
 
   if (e) return e;

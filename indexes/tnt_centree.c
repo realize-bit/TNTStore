@@ -278,7 +278,7 @@ void print2DUtil(node n, int space) {
   // count
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
-  if (!n->removed)
+  if (n->value.slab->min != -1)
     printf("%lu,%lu:%lu//%lu//%lu\n", n->value.seq, n->value.level,
            n->value.slab->nb_items, n->value.slab->hot_pages, 
            n->value.slab->hotest_pages);
