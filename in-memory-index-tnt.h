@@ -39,6 +39,11 @@ void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key);
 
 tree_entry_t *tnt_parent_subtree_get(void *centnode);
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e);
+struct tree_entry* centree_lookup_and_reserve(
+  void *item,
+  uint64_t *out_idx,
+  index_entry_t **out_e);
+
 tree_entry_t *tnt_traverse_use_seq(int seq);
 
 int tnt_get_nodes_at_level(int level, background_queue *q);

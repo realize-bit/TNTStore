@@ -256,7 +256,7 @@ void wakeup_subtree_get(void *n) {
   centree_node p = (centree_node)n;
   if (p) {
     atomic_store(&p->child_flag, 1);
-		//printf("wake: %lu, %d\n", n->parent->key, atomic_load(&n->parent->child_flag));
+    //printf("wake: %lu, %d\n", n->parent->key, atomic_load(&n->parent->child_flag));
     futex_wake(&p->child_flag, INT_MAX);
   }
 }
@@ -271,7 +271,7 @@ index_entry_t *subtree_worker_lookup_utree(subtree_t *tree, void *item) {
   uint64_t hash = get_prefix_for_item(item);
   // printf("# \tLookup Debug hash 1: %lu\n", hash);
   int res =
-      subtree_find(tree, (unsigned char *)&hash, sizeof(hash), &tmp_entry);
+    subtree_find(tree, (unsigned char *)&hash, sizeof(hash), &tmp_entry);
   if (res)
     return &tmp_entry;
   else
@@ -295,9 +295,9 @@ uint64_t tnt_get_centree_level(void *n) {
 }
 
 void tnt_subtree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key) { tree_entry_t e = { .seq = s->seq,
-      .key = tmp_key,
-      .slab = s,
-  };
+  .key = tmp_key,
+  .slab = s,
+};
   subtree_set_slab(tree, s);
   s->subtree = tree;
   s->filter = filter;
@@ -322,6 +322,20 @@ int subtree_worker_invalid_utree(subtree_t *tree, void *item) {
 /* ========================================= */
 // TNT
 
+// root lock 안팎 처리를 이 함수가 전부 담당
+static centree_node centree_find_leaf(void *key) {
+  centree_node n = centree_root->root;
+  R_LOCK(&centree_root_lock);
+  while (1) {
+    int cmp = tnt_pointer_cmp(key, n->key);
+    centree_node next = (cmp <= 0 ? n->left : n->right);
+    if (!next) break;
+    n = next;
+  }
+  R_UNLOCK(&centree_root_lock);
+  return n;
+}
+
 tree_entry_t *tnt_parent_subtree_get(void *centnode) {
   centree_node p = ((centree_node)centnode)->parent;
   return p ? &p->value : NULL ;
@@ -339,11 +353,11 @@ size_t reserve_slot(struct slab *s) {
   old = atomic_load_explicit(&s->last_item, memory_order_relaxed);
   while (old < s->nb_max_items) {
     if (atomic_compare_exchange_weak_explicit(
-          &s->last_item,
-          &old,           // expected value
-          old + 1,        // desired value
-          memory_order_acquire,
-          memory_order_relaxed)) {
+      &s->last_item,
+      &old,           // expected value
+      old + 1,        // desired value
+      memory_order_acquire,
+      memory_order_relaxed)) {
       // CAS 성공: old 가 예약된 슬롯
       break;
     }
@@ -377,7 +391,7 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
 
     // ── 1) full 아닌 slab에서만 in-place 업데이트 허용 ──
     if (!atomic_load_explicit(&s->full, memory_order_acquire)
-		    && old_e && s == old_e->slab) {
+      && old_e && s == old_e->slab) {
       __sync_fetch_and_add(&s->update_ref, 1);
       *idx = (uint64_t)-1;
       break;
@@ -435,9 +449,9 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
       R_UNLOCK(&s->tree_lock);
       if (!n) {
         R_UNLOCK(&centree_root_lock);
-	while (atomic_load(&prev->child_flag) == 0) {
-  	  futex_wait(&prev->child_flag, 0);
-	}
+        while (atomic_load(&prev->child_flag) == 0) {
+          futex_wait(&prev->child_flag, 0);
+        }
         R_LOCK(&centree_root_lock);
       }
     } while (!n);
@@ -448,6 +462,87 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   else
     return NULL;
 }
+
+struct tree_entry* centree_lookup_and_reserve(
+  void *item,
+  uint64_t *out_idx,
+  index_entry_t **out_e)
+{
+  // item -> key 추출
+  struct item_metadata *meta = (struct item_metadata *)item;
+  char *item_key = &item[sizeof(*meta)];
+  uint64_t key = *(uint64_t *)item_key;
+
+  // 4) 최초 하강: 기존 find 함수 재사용
+  centree_node n = centree_find_leaf((void *)key);
+
+  // 5) 이후부터는 root 락을 잡고 slab 할당/하강 로직 수행
+  centree_node prev;
+
+  R_LOCK(&centree_root_lock);
+  while (1) {
+    struct slab *s = n->value.slab;
+    index_entry_t *found;
+
+    // a) slab 내부 lookup
+    R_LOCK(&s->tree_lock);
+    found = subtree_worker_lookup_utree(s->subtree, item);
+    R_UNLOCK(&s->tree_lock);
+
+    // b) in-place update 조건
+    if (!atomic_load_explicit(&s->full, memory_order_acquire) && found) {
+      __sync_fetch_and_add(&s->update_ref, 1);
+      *out_idx = (uint64_t)-1;
+      *out_e = found;
+      return &n->value;
+    }
+
+    // c) 새 슬롯 예약 시도
+    size_t slot = reserve_slot(s);
+    if (slot != (size_t)-1) {
+      __sync_fetch_and_add(&s->update_ref, 1);
+      __sync_fetch_and_add(&s->nb_items, 1);
+      *out_idx = slot;
+      break;
+    }
+
+    // d) slab full -> split된 자식으로 하강 (자식 없으면 기다림)
+    prev = n;
+    do {
+      int comp = tnt_pointer_cmp((void*)key, prev->key);
+      R_LOCK(&s->tree_lock);
+      n = (comp <= 0 ? prev->left : prev->right);
+      R_UNLOCK(&s->tree_lock);
+
+      if (!n) {
+        R_UNLOCK(&centree_root_lock);
+        while (atomic_load_explicit(&prev->child_flag, memory_order_acquire) == 0) {
+          futex_wait(&prev->child_flag, 0);
+        }
+        R_LOCK(&centree_root_lock);
+      }
+    } while (!n);
+    // 새 노드로 내려갔으니 다시 할당 시도
+  }
+  R_UNLOCK(&centree_root_lock);
+
+  // 6) upward lookup: 리프 노드 n에서부터 위로 올라가며 이전 entry 찾기
+  *out_e = NULL;
+  for (centree_node cur = n; cur; cur = cur->lu_parent) {
+    struct slab *s2 = cur->value.slab;
+    R_LOCK(&s2->tree_lock);
+    index_entry_t *e2 = subtree_worker_lookup_utree(s2->subtree, item);
+    R_UNLOCK(&s2->tree_lock);
+    if (e2) {
+      *out_e = e2;
+      break;
+    }
+  }
+
+  // 7) 최종 대상 tree_entry 리턴
+  return &n->value;
+}
+
 
 tree_entry_t *tnt_traverse_use_seq(int seq) {
   tree_entry_t *t;
@@ -517,24 +612,25 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
-  centree_node n = t->root;
+  centree_node n;
   index_entry_t *e = NULL, *tmp = NULL;
   int try = 0;
 
   // Leaf node까지 내려가는 과정
-  R_LOCK(&centree_root_lock);
-  while (n != NULL) {
-    int comp_result = tnt_pointer_cmp((void *)key, n->key);
-    if (comp_result <= 0) {
-      if (n->left == NULL) break;  // Leaf node에 도달
-      n = n->left;
-    } else {
-      assert(comp_result > 0);
-      if (n->right == NULL) break;  // Leaf node에 도달
-      n = n->right;
-    }
-  }
-  R_UNLOCK(&centree_root_lock);
+  //R_LOCK(&centree_root_lock);
+  //while (n != NULL) {
+  //  int comp_result = tnt_pointer_cmp((void *)key, n->key);
+  //  if (comp_result <= 0) {
+  //    if (n->left == NULL) break;  // Leaf node에 도달
+  //    n = n->left;
+  //  } else {
+  //    assert(comp_result > 0);
+  //    if (n->right == NULL) break;  // Leaf node에 도달
+  //    n = n->right;
+  //  }
+  //}
+  //R_UNLOCK(&centree_root_lock);
+  n = centree_find_leaf((void*)key);
   add_time_in_payload(cb, 2);
 
   // Leaf node에서 upward 탐색
@@ -544,7 +640,7 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
     if (s->min != -1) {
 #if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
-#endif
+        #endif
         try++;
         /*printf("try: %lu\n", s->seq);*/
         tmp = subtree_worker_lookup_utree(s->subtree, item);
@@ -596,7 +692,7 @@ int tnt_index_invalid(void *item) {
     if (s->min != -1) {
 #if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
-#endif
+        #endif
         if (subtree_worker_invalid_utree(s->subtree, item)) {
           __sync_fetch_and_sub(&s->nb_items, 1);
           count++;

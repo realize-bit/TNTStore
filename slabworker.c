@@ -269,10 +269,11 @@ again:
     add_time_in_payload(callback, 1);
 
     index_entry_t *e = NULL;
+    struct tree_entry *tree = NULL;
     // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
-    if (action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP &&
-        action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
-      e = tnt_index_lookup(callback, callback->item);
+    //if (action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP &&
+    //    action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
+    //  e = tnt_index_lookup(callback, callback->item);
 
     // printf("(%d) i: %lu, cb: %p\n", ctx->worker_id, i, callback->cb);
     switch (action) {
@@ -285,6 +286,7 @@ again:
         read_item_async(callback);
         break;
       case READ:
+        e = tnt_index_lookup(callback, callback->item);
         if (!e) {  // Item is not in DB
           __sync_add_and_fetch(&try_fsst, 1);
           if (!callback->cb)
@@ -299,25 +301,32 @@ again:
         }
         break;
       case ADD:
+        tree = centree_lookup_and_reserve(callback->item, 
+                          &callback->slab_idx, &e);
         if (e) {
           die("Adding item that is already in the database! Use update "
               "instead! (This error might also appear if 2 keys have the same "
               "prefix, TODO: make index more robust to that.)\n");
         } else {
-          callback->slab =
-              get_slab(ctx, callback->item, &callback->slab_idx, e);
+          callback->slab = tree->slab;
+          //callback->slab =
+          //    get_slab(ctx, callback->item, &callback->slab_idx, e);
           add_time_in_payload(callback, 4);
           add_item_async(callback);
         }
         break;
       case UPDATE:
+        tree = centree_lookup_and_reserve(callback->item, 
+                          &callback->slab_idx, &e);
         if (!e) {
           // callback->slab = NULL;
           // callback->slab_idx = -1;
           // callback->cb(callback, NULL);
           __sync_add_and_fetch(&try_fsst, 1);
-          callback->slab =
-              get_slab(ctx, callback->item, &callback->slab_idx, e);
+          tree = centree_lookup_and_reserve(callback->item, 
+                                            &callback->slab_idx, &e);
+          //callback->slab =
+          //  get_slab(ctx, callback->item, &callback->slab_idx, e);
           add_time_in_payload(callback, 4);
           add_item_async(callback);
           // read_item_async_from_fsst(callback);
@@ -325,30 +334,9 @@ again:
         }
 
         add_time_in_payload(callback, 4);
-        callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
-
-#if DEBUG
-        /*
-        struct item_metadata *meta = (struct item_metadata *)callback->item;
-        char *item_key = &callback->item[sizeof(*meta)];
-        uint64_t key = *(uint64_t*)item_key;
-        if (!e) {
-         printf("WHAT? %lu\n", key);
-         if (callback->fsst_slab) {
-           printf("SEQ, NB ITEMs, IMM %lu, %lu, %d\n", callback->fsst_slab->seq,
-        callback->fsst_slab->nb_items, callback->fsst_slab->imm); index_entry_t
-        *tmp = btree_worker_lookup_utree(callback->fsst_slab->tree,
-        callback->item); printf("index %p\n", tmp); if
-        (!filter_contain(callback->fsst_slab->filter, (unsigned char *)&key)) {
-             printf("Holy Moly\n");
-           }
-         }
-         // tnt_print();
-        }
-        else
-          callback->slab_idx = -1;
-        */
-#endif
+        tree = centree_lookup_and_reserve(callback->item, 
+                                          &callback->slab_idx, &e);
+        //callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
 
         if (e && callback->fsst_slab == NULL) {
           callback->fsst_slab = e->slab;
@@ -359,22 +347,22 @@ again:
         break;
       case FSST_NO_LOOKUP:
         break;
-      case ADD_OR_UPDATE:
-        if (!e) {
-          callback->action = ADD;
-          callback->slab =
-              get_slab(ctx, callback->item, &callback->slab_idx, e);
-          add_item_async(callback);
-        } else {
-          callback->action = UPDATE;
-          callback->slab = e->slab;
-          callback->slab_idx = GET_SIDX(e->slab_idx);
-          assert(
-              get_item_size(callback->item) <=
-              e->slab
-                  ->item_size);  // Item grew, this is not supported currently!
-          update_item_async(callback);
-        }
+      //case ADD_OR_UPDATE:
+      //  if (!e) {
+      //    callback->action = ADD;
+      //    callback->slab =
+      //        get_slab(ctx, callback->item, &callback->slab_idx, e);
+      //    add_item_async(callback);
+      //  } else {
+      //    callback->action = UPDATE;
+      //    callback->slab = e->slab;
+      //    callback->slab_idx = GET_SIDX(e->slab_idx);
+      //    assert(
+      //        get_item_size(callback->item) <=
+      //        e->slab
+      //            ->item_size);  // Item grew, this is not supported currently!
+      //    update_item_async(callback);
+      //  }
       case DELETE:
         break;
       default:
@@ -401,18 +389,18 @@ again:
 static uint64_t io_wait = 0;
 
 static void check_and_handle_tnt(uint64_t real_start, uint64_t dist_time) {
-    uint64_t now, dist_util;
+  uint64_t now, dist_util;
 
-    if (io_wait <= 5)
-      return;
+  if (io_wait <= 5)
+    return;
 
-    rdtscll(now);
-    uint64_t elapsed = now - real_start;
-    dist_util = (dist_time * 100LU / elapsed);
-    
-    if (dist_util > 50) {
-        tnt_rebalancing();
-    }
+  rdtscll(now);
+  uint64_t elapsed = now - real_start;
+  dist_util = (dist_time * 100LU / elapsed);
+
+  if (dist_util > 50) {
+    tnt_rebalancing();
+  }
 }
 
 static void *worker_slab_init(void *pdata) {
@@ -455,7 +443,7 @@ static void *worker_slab_init(void *pdata) {
     }
     __4
 
-        worker_dequeue_requests(ctx);
+    worker_dequeue_requests(ctx);
     __5  // Process queue
 
     if (ctx->worker_id == nb_distributors) {
@@ -463,8 +451,8 @@ static void *worker_slab_init(void *pdata) {
       uint64_t elapsed = __breakdown.now - __breakdown.real_start;
       io_wait = (__breakdown.evt4 * 100LU / elapsed);
     }
-        show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
-                                "io_getevents", "io_cb", "wait", "slab_cb");
+    show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
+                            "io_getevents", "io_cb", "wait", "slab_cb");
   }
 
   return NULL;
@@ -502,8 +490,8 @@ static void *worker_distributor_init(void *pdata) {
     worker_dequeue_requests(ctx);
     __5  // Process queue
 
-        show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
-                                "io_getevents", "io_cb", "wait", "slab_cb");
+                                show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
+      "io_getevents", "io_cb", "wait", "slab_cb");
     //if (ctx->worker_id == 0)
     //    check_and_handle_tnt(__breakdown.real_start, __breakdown.evt5);
   }
@@ -516,24 +504,24 @@ static void *worker_distributor_init(void *pdata) {
  * these functions do that.
  */
 int add_existing_item(struct slab *s, size_t idx, void *item,
-                       struct slab_callback *cb) {
-  struct item_metadata *meta = item;
-  char *item_key = &item[sizeof(*meta)];
-  uint64_t key = *(uint64_t *)item_key;
+                      struct slab_callback *cb) {
+struct item_metadata *meta = item;
+char *item_key = &item[sizeof(*meta)];
+uint64_t key = *(uint64_t *)item_key;
 
-  if (meta->key_size == 0)
-    return 0;
+if (meta->key_size == 0)
+  return 0;
 
 #if WITH_FILTER
-  if ((already = filter_contain(s->filter, (unsigned char *)&key))) {
-#endif
-    if (tnt_index_lookup_utree(s->subtree, item)) {
-      tnt_index_delete(s->subtree, item);
-      s->nb_items--;
-      __sync_sub_and_fetch(&nb_totals, 1);
-    }
-#if WITH_FILTER
+if ((already = filter_contain(s->filter, (unsigned char *)&key))) {
+  #endif
+  if (tnt_index_lookup_utree(s->subtree, item)) {
+    tnt_index_delete(s->subtree, item);
+    s->nb_items--;
+    __sync_sub_and_fetch(&nb_totals, 1);
   }
+#if WITH_FILTER
+}
 #endif
 
   meta->rdt = 0;
@@ -541,11 +529,11 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
   size_t old = atomic_load_explicit(&s->last_item, memory_order_relaxed);
   while (old < s->nb_max_items) {
     if (atomic_compare_exchange_weak_explicit(
-          &s->last_item,
-          &old,           // expected value
-          old + 1,        // desired value
-          memory_order_acquire,
-          memory_order_relaxed)) {
+      &s->last_item,
+      &old,           // expected value
+      old + 1,        // desired value
+      memory_order_acquire,
+      memory_order_relaxed)) {
       break;
     }
   }
@@ -560,10 +548,10 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
 
 #if WITH_FILTER
   if (!already && filter_add((filter_t *)s->filter, (unsigned char *)&key) == 0) {
-      printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
-             s->filter, key, cb->slab->seq, cb->slab_idx,
-             meta->key_size, meta->value_size);
-      return 0;
+    printf("Fail adding to filter %p %lu seq/idx %lu/%lu, kvsize: %lu/%lu\n",
+           s->filter, key, cb->slab->seq, cb->slab_idx,
+           meta->key_size, meta->value_size);
+    return 0;
 
   } else if (!filter_contain(s->filter, (unsigned char *)&key)) {
     printf("Error about filter in Rebuilding\n");
