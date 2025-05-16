@@ -127,8 +127,12 @@ static uint64_t get_hash_for_item(char *item) {
 
 /* Requests are statically attributed to workers using this function */
 struct slab_context *get_slab_context(void *item) {
-  uint64_t hash = get_hash_for_item(item);
-  return &slab_contexts[(hash) % get_nb_distributors()];
+    /* thread-local counter */
+    static __thread size_t rr_counter = 0;
+    size_t nb = get_nb_distributors();
+    /* post-increment 후 모듈로 처리 */
+    size_t idx = (rr_counter++) % nb;
+    return &slab_contexts[idx];
 }
 
 struct slab_context *get_slab_context_uidx(uint64_t items_per_page, uint64_t idx) {
@@ -498,6 +502,8 @@ static void *worker_distributor_init(void *pdata) {
     worker_dequeue_requests(ctx);
     __5  // Process queue
 
+        show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit",
+                                "io_getevents", "io_cb", "wait", "slab_cb");
     //if (ctx->worker_id == 0)
     //    check_and_handle_tnt(__breakdown.real_start, __breakdown.evt5);
   }
@@ -531,8 +537,18 @@ int add_existing_item(struct slab *s, size_t idx, void *item,
 #endif
 
   meta->rdt = 0;
-  s->nb_items++;
-  s->last_item++;
+  __sync_fetch_and_add(&s->nb_items, 1);
+  size_t old = atomic_load_explicit(&s->last_item, memory_order_relaxed);
+  while (old < s->nb_max_items) {
+    if (atomic_compare_exchange_weak_explicit(
+          &s->last_item,
+          &old,           // expected value
+          old + 1,        // desired value
+          memory_order_acquire,
+          memory_order_relaxed)) {
+      break;
+    }
+  }
   cb->slab_idx = idx;
   /*if (idx > s->last_item) s->last_item = idx;*/
 
@@ -586,8 +602,9 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
   struct slab_callback *callback;
 
   if (s->size_on_disk == 0) {
-    s->last_item = s->nb_max_items;
-    s->full = 1;
+    atomic_store_explicit(&s->last_item, 
+	s->nb_max_items, memory_order_release);
+    atomic_store_explicit(&s->full, 1, memory_order_release);
     subtree_free(s->subtree);
 #if WITH_FILTER
     filter_delete(s->filter);
@@ -614,8 +631,9 @@ void rebuild_index(struct slab *s, uint64_t key, char *buf) {
     start = end;
   }
 
-  if (s->last_item == s->nb_max_items)
-    s->full = 1;
+  if (atomic_load_explicit(&s->last_item, 
+	  memory_order_relaxed) == s->nb_max_items)
+    atomic_store_explicit(&s->full, 1, memory_order_release);
 
   free(callback);
   return;
@@ -788,7 +806,7 @@ static void *worker_rebuild_init(void *pdata) {
       s->key = (s->min + s->max) / 2;
     }
 
-    if (s->full == 0) {
+    if (atomic_load_explicit(&s->full, memory_order_acquire) == 0) {
       W_LOCK(&rebuild_lock);
       leaf_slab_list[leaf_slab_totals++] = s;
       W_UNLOCK(&rebuild_lock);
@@ -920,7 +938,8 @@ void flush_batched_load(void) {
   do {
     victim = pick_garbage_node();
     // select not full
-    while (victim && victim->slab->full == 1)
+    while (victim && 
+      atomic_load_explicit(&victim->slab->full, memory_order_acquire) == 1)
       victim = pick_garbage_node();
     if (!victim)
       break;

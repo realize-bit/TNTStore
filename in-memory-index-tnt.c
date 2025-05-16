@@ -2,12 +2,24 @@
 #include "indexes/tnt_centree.h"
 #include "indexes/tnt_subtree.h"
 
+#include <limits.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+
 extern int print;
 extern int load;
 
 static background_queue *gc_queue, *fsst_queue;
 static pthread_lock_t gc_lock;
 static pthread_lock_t fsst_lock;
+
+static int futex_wait(atomic_int *addr, int expected) {
+  return syscall(SYS_futex, addr, FUTEX_WAIT, expected, NULL, NULL, 0);
+}
+
+static int futex_wake(atomic_int *addr, int num) {
+  return syscall(SYS_futex, addr, FUTEX_WAKE, num, NULL, NULL, 0);
+}
 
 static __thread index_entry_t tmp_entry;
 
@@ -240,6 +252,15 @@ void centree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
   e->slab->centree_node = (void *)n;
 }
 
+void wakeup_subtree_get(void *n) {
+  centree_node p = (centree_node)n;
+  if (p) {
+    atomic_store(&p->child_flag, 1);
+		//printf("wake: %lu, %d\n", n->parent->key, atomic_load(&n->parent->child_flag));
+    futex_wake(&p->child_flag, INT_MAX);
+  }
+}
+
 // void tnt_subtree_delete(int worker_id, void *item) {
 //    W_LOCK(&centree_root_lock);
 //    centree_delete(centree_root, (void*)get_prefix_for_item(item),
@@ -273,10 +294,7 @@ uint64_t tnt_get_centree_level(void *n) {
   return ((centree_node)n)->value.level;
 }
 
-void tnt_subtree_add(struct slab *s, void *tree, void *filter,
-                     uint64_t tmp_key) {
-  tree_entry_t e = {
-      .seq = s->seq,
+void tnt_subtree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key) { tree_entry_t e = { .seq = s->seq,
       .key = tmp_key,
       .slab = s,
   };
@@ -309,6 +327,45 @@ tree_entry_t *tnt_parent_subtree_get(void *centnode) {
   return p ? &p->value : NULL ;
 }
 
+size_t reserve_slot(struct slab *s) {
+  size_t old;
+
+  // 1) 먼저 풀 여부 확인
+  if (atomic_load_explicit(&s->full, memory_order_acquire)) {
+    return (size_t)-1; // 풀 상태
+  }
+
+  // 2) CAS 루프: old < max 인 경우에만 +1 시도
+  old = atomic_load_explicit(&s->last_item, memory_order_relaxed);
+  while (old < s->nb_max_items) {
+    if (atomic_compare_exchange_weak_explicit(
+          &s->last_item,
+          &old,           // expected value
+          old + 1,        // desired value
+          memory_order_acquire,
+          memory_order_relaxed)) {
+      // CAS 성공: old 가 예약된 슬롯
+      break;
+    }
+    // CAS 실패 시 old 가 최신 값으로 업데이트되므로,
+    // 다시 old < max 검사 후 재시도
+  }
+
+  // 3) old >= max → 풀 상태
+  if (old >= s->nb_max_items) {
+    atomic_store_explicit(&s->full, 1, memory_order_release);
+    return (size_t)-1;
+  }
+
+  // 4) 예약된 슬롯 리턴
+  // (old 는 [0, nb_max_items-1] 범위 보장)
+  if (old + 1 == s->nb_max_items) {
+    printf("last one: %lu\n", s->key);
+    atomic_store_explicit(&s->full, 1, memory_order_release);
+  }
+  return old;
+}
+
 tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
   centree t = centree_root;
   centree_node n = t->root, prev;
@@ -318,31 +375,51 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
     struct slab *s = n->value.slab;
     int comp_result;
 
-    R_LOCK(&s->tree_lock);
-    if (s->full == 0) {
-      R_UNLOCK(&s->tree_lock);
-      if (old_e && s == old_e->slab) {
-        __sync_fetch_and_add(&s->update_ref, 1);
-        // IN-PLACE UPDATE
-        *idx = -1;
-        break;
-      }
-      W_LOCK(&s->tree_lock);
-      if (s->last_item >= s->nb_max_items) {
-        W_UNLOCK(&s->tree_lock);
-        continue;
-      }
-      assert(s->last_item < s->nb_max_items);
+    // ── 1) full 아닌 slab에서만 in-place 업데이트 허용 ──
+    if (!atomic_load_explicit(&s->full, memory_order_acquire)
+		    && old_e && s == old_e->slab) {
       __sync_fetch_and_add(&s->update_ref, 1);
-      *idx = s->last_item++;
-      s->nb_items++;
-      if (s->last_item == s->nb_max_items) s->full = 1;
-      W_UNLOCK(&s->tree_lock);
+      *idx = (uint64_t)-1;
       break;
-    } else {
-      assert(s->last_item == s->nb_max_items);
     }
-    R_UNLOCK(&s->tree_lock);
+
+    // ── 2) 슬롯 예약 (full 이면 reserve_slot()이 -1 리턴) ──
+    size_t slot = reserve_slot(s);
+    if (slot != (size_t)-1) {
+      __sync_fetch_and_add(&s->update_ref, 1);
+      __sync_fetch_and_add(&s->nb_items, 1);
+      *idx = slot;
+      break;
+    }
+
+    // ── 3) slab full 이거나 예약 실패 → 트리 아래로 ──
+
+    //R_LOCK(&s->tree_lock);
+    //if (s->full == 0) {
+    //  R_UNLOCK(&s->tree_lock);
+    //  if (old_e && s == old_e->slab) {
+    //    __sync_fetch_and_add(&s->update_ref, 1);
+    //    // IN-PLACE UPDATE
+    //    *idx = -1;
+    //    break;
+    //  }
+    //  W_LOCK(&s->tree_lock);
+    //  if (s->last_item >= s->nb_max_items) {
+    //    W_UNLOCK(&s->tree_lock);
+    //    continue;
+    //  }
+    //  assert(s->last_item < s->nb_max_items);
+    //  __sync_fetch_and_add(&s->update_ref, 1);
+    //  *idx = s->last_item++;
+    //  s->nb_items++;
+    //  if (s->last_item == s->nb_max_items) s->full = 1;
+    //  W_UNLOCK(&s->tree_lock);
+    //  break;
+    //} else {
+    //  assert(s->last_item == s->nb_max_items);
+    //}
+    //R_UNLOCK(&s->tree_lock);
+
     prev = n;
     int cur_nb_elements = 
       __sync_fetch_and_or(&t->nb_elements, 0);
@@ -358,14 +435,9 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
       R_UNLOCK(&s->tree_lock);
       if (!n) {
         R_UNLOCK(&centree_root_lock);
-        while (1) {
-          if (!prev->right || !prev->left) { 
-            NOP10();
-            if (!PINNING) usleep(2);
-          } else {
-            break;
-          }
-        }
+	while (atomic_load(&prev->child_flag) == 0) {
+  	  futex_wait(&prev->child_flag, 0);
+	}
         R_LOCK(&centree_root_lock);
       }
     } while (!n);

@@ -31,6 +31,7 @@ struct tree_entry *tnt_worker_lookup(int worker_id, void *item);
 int tnt_centree_node_is_child (centree_node n);
 uint64_t tnt_get_centree_level(void *n);
 subtree_t *tnt_subtree_create(void);
+void wakeup_subtree_get(void *n);
 void tnt_subtree_add(struct slab *s, void *tree, void *filter,
                      uint64_t tmp_key);
 void tnt_subtree_delete(int worker_id, void *item);

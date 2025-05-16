@@ -39,14 +39,15 @@ struct slab {
   uint64_t max;
   uint64_t seq;
   void *subtree;
-  void *cetree_node;
+  void *centree_node;
   void *filter;
-  unsigned char full;
+  _Atomic int full;
   pthread_rwlock_t tree_lock;
 
+  // TODO::JS::구조체 수정
   size_t item_size;
   size_t nb_items;   // Number of non freed items
-  size_t last_item;  // Total number of items, including freed
+  _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
   size_t hotest_pages;
@@ -55,6 +56,9 @@ struct slab {
   size_t size_on_disk;
   uint64_t update_ref;
   uint64_t read_ref;
+
+  unsigned char nb_batched;
+  struct slab_callback **batched_callbacks;
 };
 
 typedef centree_node node;
@@ -134,6 +138,7 @@ node new_node(void *key, tree_entry_t *value, node left, node right) {
   result->value = *value;
   result->left = left;
   result->right = right;
+  atomic_store(&result->child_flag, 0);
   if (left != NULL) left->parent = result;
   if (right != NULL) right->parent = result;
   result->parent = NULL;

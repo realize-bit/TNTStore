@@ -36,13 +36,13 @@ struct slab {
   void *subtree;
   void *centree_node;
   void *filter;
-  unsigned char full;
+  _Atomic int full;
   pthread_lock_t tree_lock;
 
   // TODO::JS::구조체 수정
   size_t item_size;
   size_t nb_items;   // Number of non freed items
-  size_t last_item;  // Total number of items, including freed
+  _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
   size_t hotest_pages;

@@ -86,17 +86,18 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   // TODO::JS::구조체 수정
   s->nb_items = 0;
   s->item_size = KV_SIZE;
-  s->last_item = 0;
   s->ctx = ctx;
 
   s->min = -1;
   s->max = 0;
   s->key = key;
   s->seq = cur_seq;
-  s->full = 0;
   s->update_ref = 0;
   s->read_ref = 0;
   s->hot_pages = 0;
+
+  atomic_init(&s->full, 0);
+  atomic_init(&s->last_item, 0);
 
    if (load)
     s->batched_callbacks = calloc(NUM_LOAD_BATCH, sizeof(struct slab_callback *));
@@ -252,6 +253,7 @@ struct slab *close_and_create_slab(struct slab *s) {
   //__sync_fetch_and_add(&t->nb_elements, 2);
   add_number_of_subtree(2);
 #endif
+  wakeup_subtree_get(s->centree_node);
 
   //tnt_print();
   return s;
@@ -412,8 +414,9 @@ void add_item_async_cb1(struct slab_callback *callback) {
     // TODO::JS::일단 아이템 사이즈 고정시킴
     if (callback->slab_idx + 1 == s->nb_max_items &&
         callback->slab_idx != callback->fsst_idx) {
-      assert(s->full == 1);
-      assert(s->last_item == s->nb_max_items);
+      assert(atomic_load_explicit(&s->full, memory_order_acquire) == 1);
+      assert(atomic_load_explicit(&s->last_item, 
+	     memory_order_acquire) == s->nb_max_items);
       // s->imm = 1;
       R_UNLOCK(&s->tree_lock);
       s = close_and_create_slab(s);
@@ -432,7 +435,7 @@ void add_item_async_cb1(struct slab_callback *callback) {
       struct slab_callback *batched_callbacks_copy[NUM_LOAD_BATCH];
       memcpy(batched_callbacks_copy, s->batched_callbacks, NUM_LOAD_BATCH * sizeof(struct slab_callback *));
       s->nb_batched = 0;
-      if (s->full == 1)
+      if (atomic_load_explicit(&s->full, memory_order_acquire) == 1)
         free(s->batched_callbacks);
       W_UNLOCK(&s->tree_lock);
 
@@ -603,7 +606,8 @@ skip:
 
   R_LOCK(&s->tree_lock);
 
-  if (s->full && s->seq < rc_thr &&
+  if (atomic_load_explicit(&s->full, 
+       memory_order_acquire) && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
     printf("Enqueue: %lu, %d", s->seq, rc_thr);

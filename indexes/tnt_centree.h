@@ -29,6 +29,7 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 #define _CENTREE_H_ 1
 #include <unistd.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #include "memory-item.h"
 
@@ -39,6 +40,7 @@ typedef struct centree_node_t {
   struct centree_node_t* right;
   struct centree_node_t* parent;
   struct centree_node_t* lu_parent;
+  _Atomic int child_flag;
   unsigned char removed;
   // unsigned char gc;
 } * centree_node;
