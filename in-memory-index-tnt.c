@@ -491,6 +491,7 @@ struct tree_entry* centree_lookup_and_reserve(
 
     // b) in-place update 조건
     if (!atomic_load_explicit(&s->full, memory_order_acquire) && found) {
+      R_UNLOCK(&centree_root_lock);
       __sync_fetch_and_add(&s->update_ref, 1);
       *out_idx = (uint64_t)-1;
       *out_e = found;

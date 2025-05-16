@@ -323,8 +323,7 @@ again:
           // callback->slab_idx = -1;
           // callback->cb(callback, NULL);
           __sync_add_and_fetch(&try_fsst, 1);
-          tree = centree_lookup_and_reserve(callback->item, 
-                                            &callback->slab_idx, &e);
+	  callback->slab = tree->slab;
           //callback->slab =
           //  get_slab(ctx, callback->item, &callback->slab_idx, e);
           add_time_in_payload(callback, 4);
@@ -334,8 +333,7 @@ again:
         }
 
         add_time_in_payload(callback, 4);
-        tree = centree_lookup_and_reserve(callback->item, 
-                                          &callback->slab_idx, &e);
+	callback->slab = tree->slab;
         //callback->slab = get_slab(ctx, callback->item, &callback->slab_idx, e);
 
         if (e && callback->fsst_slab == NULL) {
