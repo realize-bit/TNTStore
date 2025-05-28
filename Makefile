@@ -17,15 +17,19 @@ LDLIBS=-lm -lpthread -lstdc++ -L/usr/lib/gcc/x86_64-linux-gnu/11/
 INDEXES_OBJ=indexes/rbtree.o indexes/btree.o indexes/filter.o indexes/tnt_centree.o indexes/tnt_subtree.o indexes/tnt_balance.o
 OTHERS_OBJ=slab.o freelist.o ioengine.o pagecache.o stats.o random.o slabworker.o workload-common.o workload-ycsb.o workload-dbbench.o workload-production.o utils.o in-memory-index-tnt.o in-memory-index-rbtree.o in-memory-index-btree.o fsst.o db_bench.o ${INDEXES_OBJ}
 MAIN_OBJ=main.o ${OTHERS_OBJ} 
-TEST_OBJ=test/main.o ${OTHERS_OBJ}
 BENCH_OBJ=benchcomponents.o pagecache.o random.o $(INDEXES_OBJ)
 
 .PHONY: all clean
 
 all: makefile.dep main benchcomponents
 
-test: ${TEST_OBJ}
-	${CC} ${TEST_OBJ} ${CFLAGS} ${LDLIBS} -o test/test_main
+test: test/test_main test/test_reins
+
+test/test_main: test/main.o ${OTHERS_OBJ}
+	${CC} test/main.o ${OTHERS_OBJ} ${CFLAGS} ${LDLIBS} -o test/test_main
+
+test/test_reins: test/reinsert.o ${OTHERS_OBJ}
+	${CC} test/reinsert.o ${OTHERS_OBJ} ${CFLAGS} ${LDLIBS} -o test/test_reins
 
 makefile.dep: *.[Cch] indexes/*.[ch] indexes/*.cc
 	for i in *.[Cc]; do ${CC} -MM "$${i}" ${CFLAGS}; done > $@
@@ -40,5 +44,5 @@ main: $(MAIN_OBJ)
 benchcomponents: $(BENCH_OBJ)
 
 clean:
-	rm -f *.o indexes/*.o main benchcomponents
+	rm -f *.o indexes/*.o test/*.o main test/test_main test/test_reins benchcomponents
 

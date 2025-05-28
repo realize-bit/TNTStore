@@ -374,7 +374,7 @@ size_t reserve_slot(struct slab *s) {
   // 4) 예약된 슬롯 리턴
   // (old 는 [0, nb_max_items-1] 범위 보장)
   if (old + 1 == s->nb_max_items) {
-    printf("last one: %lu\n", s->key);
+    //printf("last one: %lu\n", s->key);
     atomic_store_explicit(&s->full, 1, memory_order_release);
   }
   return old;
@@ -482,11 +482,12 @@ struct tree_entry* centree_lookup_and_reserve(
   R_LOCK(&centree_root_lock);
   while (1) {
     struct slab *s = n->value.slab;
-    index_entry_t *found;
+    index_entry_t *found = NULL;
 
     // a) slab 내부 lookup
     R_LOCK(&s->tree_lock);
-    found = subtree_worker_lookup_utree(s->subtree, item);
+    if (key <= s->max && key >= s->min)
+    	found = subtree_worker_lookup_utree(s->subtree, item);
     R_UNLOCK(&s->tree_lock);
 
     // b) in-place update 조건
@@ -531,8 +532,10 @@ struct tree_entry* centree_lookup_and_reserve(
   *out_e = NULL;
   for (centree_node cur = n; cur; cur = cur->lu_parent) {
     struct slab *s2 = cur->value.slab;
+    index_entry_t *e2 = NULL;
     R_LOCK(&s2->tree_lock);
-    index_entry_t *e2 = subtree_worker_lookup_utree(s2->subtree, item);
+    if (key <= s2->max && key >= s2->min)
+    	e2 = subtree_worker_lookup_utree(s2->subtree, item);
     R_UNLOCK(&s2->tree_lock);
     if (e2) {
       *out_e = e2;
@@ -608,6 +611,15 @@ void tnt_subtree_update_key(uint64_t old_key, uint64_t new_key) {
   R_UNLOCK(&centree_root_lock);
 }
 
+static __thread int try = 0;
+static __thread uint64_t try_key = 0;
+
+index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, int *ttry, uint64_t *tkey) {
+  index_entry_t *e = tnt_index_lookup(cb, item);
+  *ttry = try; *tkey = try_key;
+  return e;
+}
+
 index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   centree t = centree_root;
   struct item_metadata *meta = (struct item_metadata *)item;
@@ -615,7 +627,7 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   uint64_t key = *(uint64_t *)item_key;
   centree_node n;
   index_entry_t *e = NULL, *tmp = NULL;
-  int try = 0;
+  int tmp_try = 0;
 
   // Leaf node까지 내려가는 과정
   //R_LOCK(&centree_root_lock);
@@ -638,19 +650,25 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   while (n != NULL) {
     struct slab *s = n->value.slab;
     R_LOCK(&s->tree_lock);
+    tmp_try++;
     if (s->min != -1) {
 #if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
         #endif
-        try++;
-        /*printf("try: %lu\n", s->seq);*/
-        tmp = subtree_worker_lookup_utree(s->subtree, item);
+	if (key <= s->max && key >= s->min) {
+          tmp = subtree_worker_lookup_utree(s->subtree, item);
+	}
         if (tmp) {
           //  && !TEST_INVAL(tmp->slab_idx)
           //  이 조건을 지웠는데, update의 lock을 최소화하기 위해서
           //  1. 지운다. 2. 추가한다 이 과정에서 1-2 사이에 있는 중일 수 있음
           e = tmp;
           R_UNLOCK(&s->tree_lock);
+	  if (tmp_try > try) {
+	    try = tmp_try;
+	    try_key = key;
+	  }
+          //printf("[%lu] try: %d\n", key, try);
           break;
         }
 #if WITH_FILTER

@@ -35,6 +35,7 @@ typedef struct {
   size_t start_idx, end_idx;        // 이 쓰레드가 처리할 키 구간
   double *read_lat, *upd_lat;       // 쓰레드별 레이턴시 배열
   size_t read_cnt, upd_cnt;
+  size_t max_key;
   char   *item_buf;
 } thread_data_t;
 
@@ -223,13 +224,15 @@ void *worker(void *arg) {
   char *buf = td->item_buf;
   unsigned int seed = time(NULL) ^ pthread_self();
   pin_me_on(td->thread_id);
+  int max_try;
+  size_t max_key;
 
   // 2) YCSB 스타일 연산 파트
   for (size_t i = td->start_idx; i < td->end_idx; i++) {
     //int r = rand_r(&seed);
     //uint64_t key = (r % TOTAL_REQS) + 1;
     uint64_t key = zipf_next() + 1;
-    init_test_item(buf, key);
+    init_test_item(buf, keys[i]);
     struct slab_callback cb = {/*...*/};
     cb.slab_idx = 0;
     cb.item     = buf;
@@ -241,7 +244,7 @@ void *worker(void *arg) {
     } else {
       struct timespec ts, te;
       clock_gettime(CLOCK_MONOTONIC, &ts);
-      index_entry_t *e = tnt_index_lookup(&cb, buf);
+      index_entry_t *e = tnt_index_lookup_for_test(&cb, buf, &max_try, &max_key);
       if (!e)
 	  printf("Not Found %lu\n", keys[i]);
       clock_gettime(CLOCK_MONOTONIC, &te);
@@ -249,6 +252,8 @@ void *worker(void *arg) {
       td->read_lat[td->read_cnt++] = lat;
     }
   }
+  printf("max try: %d, max key: %lu\n", max_try, max_key);
+  td->max_key = max_key;
 
   return NULL;
 }
@@ -283,8 +288,10 @@ void *phase2_worker(void *arg) {
     //int r = rand_r(&seed);
     //uint64_t key = (r % TOTAL_REQS) + 1;
     uint64_t key = zipf_next() + 1;
-    init_test_item(buf, key);
+    init_test_item(buf, td->max_key);
     struct slab_callback cb = { .slab_idx = 0, .item = buf };
+
+    if (i == td->start_idx) add_to_tree_for_update_timed(&cb, buf);
 
     if (should_update(seed)) {
       double lat = add_to_tree_for_update_timed(&cb, buf);

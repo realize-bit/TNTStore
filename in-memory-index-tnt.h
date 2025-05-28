@@ -50,6 +50,7 @@ int tnt_get_nodes_at_level(int level, background_queue *q);
 
 void tnt_index_add(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item);
+index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, int *ttry, uint64_t *tkey);
 int tnt_index_invalid(void *item);
 
 uint64_t add_number_of_subtree(uint64_t n);
