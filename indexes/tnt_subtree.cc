@@ -1,4 +1,6 @@
 #include "cpp-btree/btree_map.h"
+#include <vector>
+#include <random>
 #include "tnt_subtree.h"
 
 using namespace std;
@@ -81,6 +83,45 @@ void subtree_insert(subtree_t *t, unsigned char *k, size_t len,
   btree_map<uint64_t, uint32_t> *b =
       static_cast<btree_map<uint64_t, uint32_t> *>(t->tree);
   b->insert(make_pair(hash, (uint32_t)e->slab_idx));
+}
+
+int subtree_sample_percent(subtree_t *t,
+                           uint64_t *out_keys,
+                           size_t sample_cnt) {
+  auto b = static_cast<btree_map<uint64_t,uint32_t>*>(t->tree);
+  size_t N = b->size();
+  if (N == 0 || sample_cnt == 0) return 0;
+
+  // 리저버 샘플링 준비
+  std::vector<uint64_t> reservoir;
+  reservoir.reserve(sample_cnt);
+
+  std::mt19937_64 rng{std::random_device{}()};
+  size_t idx = 0;
+
+  for (auto it = b->begin(); it != b->end(); ++it, ++idx) {
+    uint64_t key = it->first;
+
+    if (idx < sample_cnt) {
+      // 초기 sample_cnt개는 곧바로 reservoir에 담고
+      reservoir.push_back(key);
+    } else {
+      // 이후엔 [0..idx] 사이에서 랜덤 인덱스 j를 뽑아
+      // j < sample_cnt 이면 reservoir[j]를 대체
+      std::uniform_int_distribution<size_t> dist(0, idx);
+      size_t j = dist(rng);
+      if (j < sample_cnt) {
+        reservoir[j] = key;
+      }
+    }
+    if (idx + 1 >= N) break;
+  }
+
+  // 결과를 out_keys에 복사
+  for (size_t i = 0; i < sample_cnt; i++) {
+    out_keys[i] = reservoir[i];
+  }
+  return (int)sample_cnt;
 }
 
 int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),

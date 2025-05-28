@@ -76,6 +76,36 @@ uint64_t get_real_key(size_t position) {
 }
 #endif
 
+static uint64_t *old_keys = NULL;
+static uint64_t oldkey_size = 0;
+
+void init_old_keys(uint64_t nb_items_in_db) {
+  oldkey_size = nb_items_in_db;
+  printf("old: %lu\n", oldkey_size);
+  old_keys = malloc(oldkey_size * sizeof(uint64_t));
+
+  if (!old_keys) {
+    perror("Failed to allocate memory for old keys");
+    exit(1);
+  }
+
+  for (size_t i = 0; i < oldkey_size; i++) old_keys[i] = i;
+
+
+  swizzle_by_slab(old_keys, nb_items_in_db, OLD_PERCENT);
+}
+
+uint64_t get_old_key(size_t position) {
+  if (oldkey_size == 0)
+    return position;
+
+  if (position >= oldkey_size) {
+    fprintf(stderr, "Position %lu out of range\n", position);
+    exit(1);
+  }
+  return old_keys[position];
+}
+
 /* zipf - from
  * https://bitbucket.org/theoanab/rocksdb-ycsb/src/master/util/zipf.h */
 static long items;              // initialized in init_zipf_generator function

@@ -22,6 +22,8 @@
 #define DESCEND 2
 #define RANDOM 3
 
+#define OLD_PERCENT 10.0
+
 //#define INSERT_MODE RANDOM
 //#define INSERT_MODE ASCEND
 #define INSERT_MODE DESCEND

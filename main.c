@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
   struct workload w = {
       .api = &YCSB,
       //.api = &DBBENCH,
+      //.api = &BGWORK,
       .nb_items_in_db = 100000000LU,
       .nb_load_injectors = 4,
   };
@@ -110,6 +111,13 @@ int main(int argc, char **argv) {
     sleep_until_fsstq_empty();
   }
   stop_timer("Remaining RC operations");
+
+  if (w.api == &BGWORK) {
+    start_timer {
+      init_old_keys(w.nb_items_in_db);
+    }
+    stop_timer("Init array for reinsertion test");
+  }
 
   //start_timer {
   //  tnt_rebalancing();

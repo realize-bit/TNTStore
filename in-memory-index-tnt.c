@@ -240,6 +240,61 @@ centree_node get_next_node(background_queue *queue, centree_node target) {
 static centree centree_root;
 static pthread_lock_t centree_root_lock;
 
+void swizzle_by_slab(size_t *arr, size_t nb_items, double x_percent) {
+  // 1) Initialize arr[i] = i
+  for (size_t i = 0; i < nb_items; i++) {
+    arr[i] = i;
+  }
+
+  // 2) Prepare BFS queue (use GC queue)
+  //    Clear any existing content
+  while (!bgq_is_empty(GC)) {
+    bgq_dequeue(GC);
+  }
+  //    Enqueue root
+  centree_node root = centree_root->root;
+  if (root) {
+    bgq_enqueue(GC, root);
+  }
+
+  uint64_t *sample_arr = malloc(sizeof(uint64_t) * root->value.slab->nb_max_items);
+
+  // 3) Traverse, sample X% of each slab’s keys, and swap
+  size_t write_idx = 0;
+  srand((unsigned)time(NULL));
+
+  while (!bgq_is_empty(GC) && write_idx < nb_items) {
+    // dequeue one node
+    centree_node node = (centree_node)bgq_dequeue(GC);
+    if (!node) continue;
+
+    // sample X% of this slab’s items
+    struct slab *s = node->value.slab;
+    printf("reinsertion slab: %lu\n", s->seq);
+    size_t item_count = s->nb_items;  
+    size_t sample_cnt = (size_t)(item_count * x_percent / 100.0);
+    subtree_sample_percent(s->subtree, sample_arr, sample_cnt);
+
+    for (size_t j = 0; j < sample_cnt && write_idx < nb_items; j++) {
+      // pick a random key in [s->min, s->max]
+      // note: if keys are not perfectly dense, you may adjust this
+      size_t key = sample_arr[j];
+      if (key >= nb_items) continue;  // safety check
+
+      // swap arr[write_idx] <-> arr[key]
+      size_t tmp   = arr[write_idx];
+      arr[write_idx] = arr[key];
+      arr[key]       = tmp;
+
+      write_idx++;
+    }
+
+    // enqueue children
+    if (node->left)  bgq_enqueue(GC, node->left);
+    if (node->right) bgq_enqueue(GC, node->right);
+  }
+}
+
 tree_entry_t *centree_worker_lookup(void *key) {
   return centree_lookup(centree_root, key, tnt_pointer_cmp);
 }

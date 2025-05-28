@@ -223,8 +223,8 @@ struct slab *close_and_create_slab(struct slab *s) {
 
   // if(s->key != new_key)
   tnt_subtree_update_key(s->key, new_key);
-  printf("NNN: %lu, %lu // %lu-%lu\n", (uint64_t)s->key, (uint64_t)new_key,
-         s->min, s->max);
+  /*printf("NNN: %lu, %lu // %lu-%lu\n", (uint64_t)s->key, (uint64_t)new_key,*/
+  /*       s->min, s->max);*/
 
   W_LOCK(&s->tree_lock);
   s->key = new_key;

@@ -15,13 +15,12 @@ CFLAGS += -DSELECTED_BENCH=$(BENCH) -DSELECTED_PAGE_CACHE_SIZE=$(PAGE_CACHE_SIZE
 LDLIBS=-lm -lpthread -lstdc++ -L/usr/lib/gcc/x86_64-linux-gnu/11/
 
 INDEXES_OBJ=indexes/rbtree.o indexes/btree.o indexes/filter.o indexes/tnt_centree.o indexes/tnt_subtree.o indexes/tnt_balance.o
-OTHERS_OBJ=slab.o freelist.o ioengine.o pagecache.o stats.o random.o slabworker.o workload-common.o workload-ycsb.o workload-dbbench.o workload-production.o utils.o in-memory-index-tnt.o in-memory-index-rbtree.o in-memory-index-btree.o fsst.o db_bench.o ${INDEXES_OBJ}
+OTHERS_OBJ=slab.o freelist.o ioengine.o pagecache.o stats.o random.o slabworker.o workload-common.o workload-ycsb.o workload-dbbench.o workload-bgwork.o workload-production.o utils.o in-memory-index-tnt.o in-memory-index-rbtree.o in-memory-index-btree.o fsst.o db_bench.o ${INDEXES_OBJ}
 MAIN_OBJ=main.o ${OTHERS_OBJ} 
-BENCH_OBJ=benchcomponents.o pagecache.o random.o $(INDEXES_OBJ)
 
 .PHONY: all clean
 
-all: makefile.dep main benchcomponents
+all: makefile.dep main 
 
 test: test/test_main test/test_reins
 
@@ -41,8 +40,6 @@ makefile.dep: *.[Cch] indexes/*.[ch] indexes/*.cc
 
 main: $(MAIN_OBJ)
 
-benchcomponents: $(BENCH_OBJ)
-
 clean:
-	rm -f *.o indexes/*.o test/*.o main test/test_main test/test_reins benchcomponents
+	rm -f *.o indexes/*.o test/*.o main test/test_main test/test_reins makefile.dep
 

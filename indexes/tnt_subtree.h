@@ -23,6 +23,9 @@ void subtree_insert(subtree_t *t, unsigned char *k, size_t len,
 int subtree_forall_keys(subtree_t *t, void (*cb)(uint64_t h, int n, void *data),
                          void *data);
 int subtree_forall_invalid(subtree_t *t, void *data, void (*cb)(void *slab, uint64_t slab_idx));
+int subtree_sample_percent(subtree_t *t,
+                           uint64_t *out_keys,
+                           size_t sample_cnt);
 void subtree_free(subtree_t *t);
 
 #ifdef __cplusplus

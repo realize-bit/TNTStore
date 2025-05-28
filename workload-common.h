@@ -26,6 +26,7 @@ typedef enum available_bench {
   dbbench_all_dist,
   dbbench_prefix_random,
   dbbench_prefix_dist,
+  bgwork_reinsertion,
 } bench_t;
 
 struct workload_api {
@@ -40,6 +41,7 @@ struct workload_api {
       uint64_t max_uid);  // allocate an item in memory and return it
 };
 extern struct workload_api YCSB;
+extern struct workload_api BGWORK;
 extern struct workload_api DBBENCH;
 extern struct workload_api PRODUCTION;
 

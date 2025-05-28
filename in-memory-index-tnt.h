@@ -48,6 +48,7 @@ tree_entry_t *tnt_traverse_use_seq(int seq);
 
 int tnt_get_nodes_at_level(int level, background_queue *q);
 
+void swizzle_by_slab(size_t *arr, size_t nb_items, double x_percent);
 void tnt_index_add(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, int *ttry, uint64_t *tkey);
