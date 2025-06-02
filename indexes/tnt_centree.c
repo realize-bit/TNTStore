@@ -32,6 +32,8 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 #include <stdio.h>
 
 struct slab {
+  struct slab_context *ctx;
+
   uint64_t key;
   uint64_t min;
   uint64_t max;
@@ -47,9 +49,12 @@ struct slab {
   // TODO::JS::구조체 수정
   size_t item_size;
   size_t nb_items;   // Number of non freed items
-  _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
-  size_t hot_pages;
+  _Atomic size_t last_item;  // Total number of items, including freed
+
+  _Atomic size_t cur_ep;
+  _Atomic size_t epcnt;
+  _Atomic size_t prev_epcnt;
 
   int fd;
   size_t size_on_disk;
@@ -280,8 +285,12 @@ void print2DUtil(node n, int space) {
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
   if (n->value.slab->min != -1)
-    printf("%lu,%lu:%lu//%lu\n", n->value.seq, n->value.level,
-           n->value.slab->nb_items, n->value.slab->hot_pages);
+    printf("%lu,%lu:%lu//%lu,%lu,%lu\n", n->value.seq, n->value.level,
+           n->value.slab->nb_items, 
+           atomic_load_explicit(&n->value.slab->cur_ep, memory_order_relaxed), 
+           atomic_load_explicit(&n->value.slab->prev_epcnt, memory_order_relaxed), 
+           atomic_load_explicit(&n->value.slab->epcnt, memory_order_relaxed)
+           );
   else
     printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);
 

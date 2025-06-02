@@ -44,9 +44,12 @@ struct slab {
   // TODO::JS::구조체 수정
   size_t item_size;
   size_t nb_items;   // Number of non freed items
-  _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
-  size_t hot_pages;
+  _Atomic size_t last_item;  // Total number of items, including freed
+
+  _Atomic size_t cur_ep;
+  _Atomic size_t epcnt;
+  _Atomic size_t prev_epcnt;
 
   int fd;
   size_t size_on_disk;

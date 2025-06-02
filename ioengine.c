@@ -207,21 +207,6 @@ char *read_page_async(struct slab_callback *callback) {
                                    &disk_page, &lru_entry, callback->slab);
   callback->lru_entry = lru_entry;
   if (lru_entry->contains_data) {  // content is cached already
-#if WITH_HOT
-    struct slab *s = callback->slab;
-    if (callback->lru_entry->hot_page_checked == 2 
-      && !tnt_centree_node_is_child(s->centree_node)
-      && s->hot_pages < (s->nb_items/40)) {
-      char *item;
-      char *disk_page = callback->lru_entry->page;
-      size_t items_per_page = PAGE_SIZE / KV_SIZE;
-      off_t in_page_offset =
-        (callback->slab_idx % items_per_page) * KV_SIZE;
-      item = malloc(KV_SIZE);
-      memcpy(item, &disk_page[in_page_offset], KV_SIZE);
-      bgq_enqueue(GC, item);
-    }
-#endif
     __sync_add_and_fetch(&cache_hit, 1);
     callback->io_cb(callback);  // call the callback directly
     return disk_page;
@@ -353,10 +338,6 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
     for (size_t i = 0; i < ret; i++) {
       struct iocb *cb = (void *)ctx->events[i].obj;
       struct slab_callback *callback = (void *)cb->aio_data;
-#if WITH_HOT
-      struct slab *s;
-      char *item;
-#endif
       if (ctx->events[i].res != 4096) {
         printf("ret: %llu, Seq: %lu, key: %lu\n", ctx->events[i].res,
                callback->slab->seq, callback->slab_idx);
@@ -364,23 +345,6 @@ void worker_ioengine_process_completed_ios(struct io_context *ctx) {
       assert(ctx->events[i].res == 4096);  // otherwise page hasn't been read
       callback->lru_entry->contains_data = 1;
       callback->lru_entry->dirty = 0;  // done before
-#if WITH_HOT
-      s = callback->slab;
-      if (callback->lru_entry->hot_page_checked == 2 
-      && !tnt_centree_node_is_child(s->centree_node)
-      && s->hot_pages < (s->nb_items/40)) {
-        char *disk_page = callback->lru_entry->page;
-        size_t items_per_page = PAGE_SIZE / KV_SIZE;
-        off_t in_page_offset =
-          (callback->slab_idx % items_per_page) * KV_SIZE;
-
-        item = malloc(KV_SIZE);
-        memcpy(item, &disk_page[in_page_offset], KV_SIZE);
-        //printf("HOT EnQ1: %lu\n", s->seq);
-        bgq_enqueue(GC, item);
-      }
-#endif
-
       callback->io_cb(callback);
     }
 

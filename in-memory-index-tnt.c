@@ -270,7 +270,6 @@ void swizzle_by_slab(size_t *arr, size_t nb_items, double x_percent) {
 
     // sample X% of this slab’s items
     struct slab *s = node->value.slab;
-    printf("reinsertion slab: %lu\n", s->seq);
     size_t item_count = s->nb_items;  
     size_t sample_cnt = (size_t)(item_count * x_percent / 100.0);
     subtree_sample_percent(s->subtree, sample_arr, sample_cnt);

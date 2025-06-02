@@ -92,13 +92,7 @@ static void *fsst_worker(void *pdata) {
 
   while (1) {
     if (bgq_is_empty(FSST)) {
-#if WITH_HOT
-      if (bgq_is_empty(GC)) {
-#endif
         goto fsst_sleep;
-#if WITH_HOT
-      }
-#endif
     }
 
     if (!bgq_is_empty(FSST)) {
@@ -114,32 +108,7 @@ static void *fsst_worker(void *pdata) {
         R_UNLOCK(&victim->slab->tree_lock);
       }
     }
-
-#if WITH_HOT
-    int j = 0;
-    if (!bgq_is_empty(GC)) {
-      printf("Hot Q: %d\n", bgq_count(GC));
-      for (j = 0; j < HOT_BATCH; j++) {
-        struct slab_callback *cb;
-        char *item =(char *)bgq_dequeue(GC);
-
-        if (!item) goto fsst_sleep;
-
-        cb = malloc(sizeof(*cb));
-        /*cb->cb = add_in_tree_for_update;*/
-        cb->cb = NULL;
-        cb->cb_cb = NULL;
-        cb->payload = NULL;
-        cb->fsst_slab = NULL;
-        cb->fsst_idx = -1;
-        cb->item = item;
-        /*printf("cbitem %p\n", cb->item);*/
-        kv_update_async(cb);
-      }
-    }
-#endif
-
-  fsst_sleep:
+fsst_sleep:
     doing = 0;
     sleep(1);
   }

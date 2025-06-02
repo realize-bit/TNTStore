@@ -38,6 +38,8 @@ static int nb_workers_ready = 0;
 
 uint64_t nb_totals;
 int try_fsst = 0;
+_Atomic size_t epoch;
+
 
 // static struct pagecache *pagecaches __attribute__((aligned(64)));
 int get_nb_distributors(void) { return nb_distributors; }
@@ -62,7 +64,6 @@ struct slab_context {
   struct pagecache *pagecache __attribute__((aligned(64)));
   struct io_context *io_ctx;
   uint64_t rdt;  // Latest timestamp
-  //uint64_t epoch; 
   char *fsst_buf;
   char *fsst_index_buf;
 } *slab_contexts;
@@ -267,12 +268,7 @@ again:
 
     index_entry_t *e = NULL;
     struct tree_entry *tree = NULL;
-    // if(action != READ_NO_LOOKUP && action != UPDATE && action != ADD)
-    //if (action != READ_NO_LOOKUP && action != ADD_NO_LOOKUP &&
-    //    action != UPDATE_NO_LOOKUP && action != FSST_NO_LOOKUP)
-    //  e = tnt_index_lookup(callback, callback->item);
 
-    // printf("(%d) i: %lu, cb: %p\n", ctx->worker_id, i, callback->cb);
     switch (action) {
       case ADD_NO_LOOKUP:
       case UPDATE_NO_LOOKUP:
@@ -290,11 +286,31 @@ again:
             printf("no index for lookup!!!!\n");
           break;
         } else {
-          callback->slab = e->slab;
+          struct slab *s = e->slab;
+          callback->slab = s;
           callback->slab_idx = GET_SIDX(e->slab_idx);
           __sync_fetch_and_add(&e->slab->read_ref, 1);
           kv_read_async_no_lookup(callback, callback->slab, callback->slab_idx,
                                   0);
+          uint64_t curr_epoch = atomic_load_explicit(&epoch, memory_order_acquire);
+          uint64_t slab_epoch = atomic_load_explicit(&s->cur_ep, memory_order_acquire);
+          uint64_t cnt = 0;
+
+          if (slab_epoch == curr_epoch) {
+            // 같은 에포크: epcount만 증가
+            cnt = atomic_fetch_add_explicit(&s->epcnt, 1, memory_order_relaxed);
+          } else {
+            // 에포크가 바뀌었으므로, 
+            // cur_ep를 최신으로 바꾸고 epcount→prev_epcount 교환 후 epcount=1
+            uint64_t old_count = atomic_exchange_explicit(
+              &s->epcnt, 0, memory_order_relaxed);
+            atomic_store_explicit(&s->cur_ep, curr_epoch, memory_order_release);
+            atomic_store_explicit(&s->prev_epcnt, old_count, memory_order_relaxed);
+            atomic_store_explicit(&s->epcnt, 1, memory_order_relaxed);
+          }
+          if (cnt == (size_t)(EPOCH/10)) {
+            printf("Reinsert: %lu\n", s->seq);
+          }
         }
         break;
       case ADD:
@@ -462,6 +478,8 @@ static void *worker_distributor_init(void *pdata) {
   pid_t x = syscall(__NR_gettid);
   printf("[SLAB WORKER %lu] tid %d\n", ctx->worker_id, x);
   pin_me_on(ctx->worker_id);
+  if (ctx->worker_id == 0)
+    atomic_init(&epoch, 1);
 
   ctx->fsst_buf = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
   ctx->fsst_index_buf = aligned_alloc(PAGE_SIZE, 512 * PAGE_SIZE);
@@ -471,9 +489,9 @@ static void *worker_distributor_init(void *pdata) {
   declare_breakdown;
   while (1) {
     ctx->rdt++;
-    //if (ctx->rdt % EPOCH == 0) {
-    //  ctx->epoch++;
-    //}
+    if (ctx->rdt % EPOCH == 0 && ctx->worker_id == 0) {
+      atomic_fetch_add_explicit(&epoch, 1, memory_order_seq_cst);
+    }
     volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
     while (!pending) {
       if (!PINNING) {

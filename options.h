@@ -8,7 +8,6 @@
 
 #define WITH_FILTER 0
 #define WITH_RC 0
-#define WITH_HOT 0
 
 /* In memory structures */
 #define RBTREE 0
@@ -23,10 +22,11 @@
 #define RANDOM 3
 
 #define OLD_PERCENT 10.0
+#define EPOCH 100000
 
-//#define INSERT_MODE RANDOM
+#define INSERT_MODE RANDOM
 //#define INSERT_MODE ASCEND
-#define INSERT_MODE DESCEND
+//#define INSERT_MODE DESCEND
 
 /* Queue depth management */
 #define QUEUE_DEPTH 64

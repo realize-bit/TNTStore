@@ -84,16 +84,14 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   size_t nb_items_per_page = PAGE_SIZE / KV_SIZE;
   s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
   // TODO::JS::구조체 수정
-  s->nb_items = 0;
   s->item_size = KV_SIZE;
 
   s->min = -1;
-  s->max = 0;
   s->key = key;
   s->seq = cur_seq;
-  s->update_ref = 0;
-  s->read_ref = 0;
-  s->hot_pages = 0;
+  atomic_init(&s->cur_ep, 1);
+  atomic_init(&s->epcnt, 0);
+  atomic_init(&s->prev_epcnt, 0);
 
   atomic_init(&s->full, 0);
   atomic_init(&s->last_item, 0);
@@ -608,7 +606,6 @@ skip:
        memory_order_acquire) && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
       !((centree_node)s->centree_node)->removed) {
-    printf("Enqueue: %lu, %d", s->seq, rc_thr);
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
   }
