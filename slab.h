@@ -35,7 +35,9 @@ struct slab {
   uint64_t seq;
   void *subtree;
   void *centree_node;
+#if WITH_FILTER
   void *filter;
+#endif
   _Atomic int full;
   pthread_lock_t tree_lock;
 
@@ -45,7 +47,6 @@ struct slab {
   _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
-  size_t hotest_pages;
 
   int fd;
   size_t size_on_disk;

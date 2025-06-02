@@ -86,7 +86,6 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   // TODO::JS::구조체 수정
   s->nb_items = 0;
   s->item_size = KV_SIZE;
-  s->ctx = ctx;
 
   s->min = -1;
   s->max = 0;
@@ -251,7 +250,6 @@ struct slab *close_and_create_slab(struct slab *s) {
   tnt_subtree_add(create_slab(NULL, new_level, new_key + 1, 0, NULL), tnt_subtree_create(),
                   NULL, new_key + 1);
   //__sync_fetch_and_add(&t->nb_elements, 2);
-  add_number_of_subtree(2);
 #endif
   wakeup_subtree_get(s->centree_node);
 
@@ -475,7 +473,7 @@ void add_item_async(struct slab_callback *callback) {
 void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
   struct slab *old_s = cb->fsst_slab;
-  uint64_t old_idx = cb->fsst_idx;
+  //uint64_t old_idx = cb->fsst_idx;
   unsigned char enqueue = 0;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];

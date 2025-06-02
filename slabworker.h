@@ -35,7 +35,6 @@ struct pagecache *get_scancache(struct slab_context *ctx);
 struct io_context *get_io_context(struct slab_context *ctx);
 uint64_t get_rdt(struct slab_context *ctx);
 void set_rdt(struct slab_context *ctx, uint64_t val);
-int get_worker(struct slab *s);
 int get_nb_disks(void);
 struct slab *get_item_slab(int worker_id, void *item);
 size_t get_item_size(char *item);

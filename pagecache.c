@@ -141,13 +141,10 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
     if (lru_entry->hash != hash)
       die("LRU wierdness %lu vs %lu\n", lru_entry->hash, hash);
     bump_page_in_lru(p, lru_entry, hash);
-    if (lru_entry->hot_page_checked == 0) {
-      __sync_add_and_fetch(&s->hot_pages, 1);
-      lru_entry->hot_page_checked = 1;
-    } else if (lru_entry->hot_page_checked == 1) {
-      __sync_add_and_fetch(&s->hotest_pages, 1);
-      lru_entry->hot_page_checked = 2;
-    }
+    //if (lru_entry->hot_page_checked == 0) {
+    //  __sync_add_and_fetch(&s->hot_pages, 1);
+    //  lru_entry->hot_page_checked = 1;
+    //}
     *page = dst;
     *lru = lru_entry;
     return 1;
@@ -163,11 +160,9 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
     dst = p->oldest_page->page;
     // printf("REPLACE PAGE %lu %lu\n", lru_entry->hash, hash);
 
-    if (lru_entry->hot_page_checked) {
-      __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hot_pages, 1);
-      if (lru_entry->hot_page_checked == 2)
-        __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hotest_pages, 1);
-    }
+    //if (lru_entry->hot_page_checked) {
+    //  __sync_fetch_and_sub(&((struct slab *)lru_entry->slab)->hot_pages, 1);
+    //}
     tree_delete(p->hash_to_page, p->oldest_page->hash, &old_entry);
 
     lru_entry->hash = hash;
@@ -175,7 +170,7 @@ int get_page_with_slab(struct pagecache *p, uint64_t hash, void **page,
     bump_page_in_lru(p, lru_entry, hash);
   }
 
-  lru_entry->hot_page_checked = 0;
+  //lru_entry->hot_page_checked = 0;
   lru_entry->slab = s;
 
   // Remember that the page cache now stores this hash

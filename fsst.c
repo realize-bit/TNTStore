@@ -25,7 +25,6 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
 #if WITH_FILTER
   filter_delete(s->filter);
 #endif
-  inc_empty_tree();
   s->subtree = NULL;
   /*s->centree_node = NULL;*/
 

@@ -62,14 +62,11 @@ struct slab_context {
   struct pagecache *pagecache __attribute__((aligned(64)));
   struct io_context *io_ctx;
   uint64_t rdt;  // Latest timestamp
+  //uint64_t epoch; 
   char *fsst_buf;
   char *fsst_index_buf;
 } *slab_contexts;
 
-/* A file is only managed by 1 worker. File => worker function. */
-int get_worker(struct slab *s) { return s->ctx->worker_id; }
-
-int get_worker_ucb(struct slab_callback *cb) { return cb->ctx->worker_id; }
 
 void increase_processed(struct slab_context *ctx) {
   __sync_fetch_and_add(&ctx->processed_callbacks, 1);
@@ -474,6 +471,9 @@ static void *worker_distributor_init(void *pdata) {
   declare_breakdown;
   while (1) {
     ctx->rdt++;
+    //if (ctx->rdt % EPOCH == 0) {
+    //  ctx->epoch++;
+    //}
     volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
     while (!pending) {
       if (!PINNING) {

@@ -32,15 +32,15 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 #include <stdio.h>
 
 struct slab {
-  struct slab_context *ctx;
-
   uint64_t key;
   uint64_t min;
   uint64_t max;
   uint64_t seq;
   void *subtree;
   void *centree_node;
+#if WITH_FILTER
   void *filter;
+#endif
   _Atomic int full;
   pthread_rwlock_t tree_lock;
 
@@ -50,7 +50,6 @@ struct slab {
   _Atomic size_t last_item;  // Total number of items, including freed
   size_t nb_max_items;
   size_t hot_pages;
-  size_t hotest_pages;
 
   int fd;
   size_t size_on_disk;
@@ -124,8 +123,6 @@ centree centree_create() {
   centree t = malloc(sizeof(struct centree_t));
   t->root = NULL;
   t->last_visited_node = NULL;
-  t->nb_elements = 0;
-  t->empty_elements = 0;
   bgqueue = malloc(sizeof(background_queue));
   init_queue(bgqueue);
   return t;
@@ -174,7 +171,6 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
 
   if (t->root == NULL) {
     t->root = inserted_node;
-    t->nb_elements = 1;
   } else {
     node n = t->root;
     while (1) {
@@ -284,9 +280,8 @@ void print2DUtil(node n, int space) {
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
   if (n->value.slab->min != -1)
-    printf("%lu,%lu:%lu//%lu//%lu\n", n->value.seq, n->value.level,
-           n->value.slab->nb_items, n->value.slab->hot_pages, 
-           n->value.slab->hotest_pages);
+    printf("%lu,%lu:%lu//%lu\n", n->value.seq, n->value.level,
+           n->value.slab->nb_items, n->value.slab->hot_pages);
   else
     printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);
 

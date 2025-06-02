@@ -355,7 +355,9 @@ void tnt_subtree_add(struct slab *s, void *tree, void *filter, uint64_t tmp_key)
 };
   subtree_set_slab(tree, s);
   s->subtree = tree;
+#if WITH_FILTER
   s->filter = filter;
+#endif
   centree_worker_insert(0, NULL, &e);
 }
 
@@ -490,8 +492,6 @@ tree_entry_t *tnt_subtree_get(void *key, uint64_t *idx, index_entry_t *old_e) {
     //R_UNLOCK(&s->tree_lock);
 
     prev = n;
-    int cur_nb_elements = 
-      __sync_fetch_and_or(&t->nb_elements, 0);
     do {
       R_LOCK(&s->tree_lock);
       comp_result = tnt_pointer_cmp((void *)key, prev->key);
@@ -821,20 +821,4 @@ void tnt_rebalancing(void) {
   W_LOCK(&centree_root_lock);
   centree_balance(centree_root);
   W_UNLOCK(&centree_root_lock);
-}
-
-uint64_t add_number_of_subtree(uint64_t n) {
-  return __sync_add_and_fetch(&centree_root->nb_elements, 2);
-}
-
-void inc_empty_tree() {
-  __sync_fetch_and_add(&centree_root->empty_elements, 1);
-}
-
-int get_number_of_subtree() {
-  int n;
-  R_LOCK(&centree_root_lock);
-  n = centree_root->nb_elements - centree_root->empty_elements;
-  R_UNLOCK(&centree_root_lock);
-  return n;
 }

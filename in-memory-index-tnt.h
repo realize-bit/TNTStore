@@ -11,11 +11,6 @@
 #define tnt_index_invalid_utree subtree_worker_invalid_utree
 #define tnt_index_delete subtree_worker_delete
 
-void btree_init(void);
-struct index_entry *btree_worker_lookup(int worker_id, void *item);
-void btree_worker_delete(int worker_id, void *item);
-void btree_index_add(struct slab_callback *cb, void *item);
-
 enum fsst_mode { GC, FSST };
 
 tree_entry_t *centree_worker_lookup(void *key);
@@ -54,10 +49,8 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, int *ttry, uint64_t *tkey);
 int tnt_index_invalid(void *item);
 
-uint64_t add_number_of_subtree(uint64_t n);
 void tnt_print(void);
 void tnt_rebalancing(void);
-void inc_empty_tree();
 
 background_queue *bgq_get(enum fsst_mode m);
 int bgq_is_empty(enum fsst_mode m);
@@ -71,12 +64,5 @@ centree_node dequeue_specific_node(background_queue *queue,
                                    centree_node target);
 tree_entry_t *get_next_node_entry(background_queue *queue, centree_node target);
 centree_node get_next_node(background_queue *queue, centree_node target);
-
-#include "indexes/filter.h"
-//#define memory_index_init btree_init
-//#define memory_index_add btree_index_add
-//#define memory_index_add_utree btree_index_add_utree
-//#define memory_index_lookup btree_worker_lookup
-//#define memory_index_delete_utree btree_worker_delete_utree
 
 #endif
