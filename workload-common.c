@@ -188,8 +188,10 @@ void repopulate_db(struct workload *w) {
 #endif
 
 #if INSERT_MODE == RANDOM
-    shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
-    //shuffle_ranges(pos, nb_inserts, 100000000);  
+    if (w->api == &BGWORK)
+      shuffle_ranges(pos, nb_inserts, MAX_FILE_SIZE/KV_SIZE);  
+    else
+      shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
 #endif
   }
   stop_timer("Big array of random positions");

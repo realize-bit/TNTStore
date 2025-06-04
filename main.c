@@ -107,12 +107,12 @@ int main(int argc, char **argv) {
   // cache_hit = 0;
   //tnt_rebalancing();
 
-  if (w.api == &BGWORK) {
-    start_timer {
-      init_old_keys(w.nb_items_in_db);
-    }
-    stop_timer("Init array for reinsertion test");
-  }
+  //if (w.api == &BGWORK) {
+  //  start_timer {
+  //    init_old_keys(w.nb_items_in_db);
+  //  }
+  //  stop_timer("Init array for reinsertion test");
+  //}
 
   //fsst_worker_init();
   //start_timer {
