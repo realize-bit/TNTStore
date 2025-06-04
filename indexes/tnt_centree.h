@@ -48,6 +48,7 @@ typedef struct centree_node_t {
 typedef struct centree_t {
   centree_node root;
   centree_node last_visited_node;
+  uint64_t depth;
 } * centree;
 
 typedef struct bgq_node_t {
@@ -67,6 +68,7 @@ typedef struct background_queue_t {
 typedef int (*compare_func)(void* left, void* right);
 int tnt_pointer_cmp(void* left, void* right);
 
+uint64_t centree_get_depth(centree t);
 centree centree_create();
 tree_entry_t* centree_lookup(centree t, void* key, compare_func compare);
 tree_entry_t* centree_traverse_useq(centree t, int seq);

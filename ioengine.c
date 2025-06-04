@@ -195,16 +195,14 @@ char *read_page_async(struct slab_callback *callback) {
   int alread_used;
   struct lru *lru_entry;
   void *disk_page;
-  uint64_t page_num = item_page_num(callback->slab, callback->slab_idx);
+  struct slab *s = callback->slab;
+  uint64_t page_num = item_page_num(s, callback->slab_idx);
   // struct slab_context *c = get_slab_context_uidx(callback->slab_idx);
   struct io_context *ctx = get_io_context(callback->ctx);
-  uint64_t hash = get_hash_for_page(callback->slab->seq, page_num);
+  uint64_t hash = get_hash_for_page(s->seq, page_num);
 
-  // callback->count = 1;
-  if (callback->action == ADD) printf("NO NO LOOKUP\n");
-  // printf("worker: %d, page_num: %lu\n", get_worker_ucb(callback), page_num);
   alread_used = get_page_with_slab(get_pagecache(callback->ctx), hash,
-                                   &disk_page, &lru_entry, callback->slab);
+                                   &disk_page, &lru_entry, s);
   callback->lru_entry = lru_entry;
   if (lru_entry->contains_data) {  // content is cached already
     __sync_add_and_fetch(&cache_hit, 1);
@@ -224,7 +222,7 @@ char *read_page_async(struct slab_callback *callback) {
   int buffer_idx = ctx->sent_io % ctx->max_pending_io;
   struct iocb *_iocb = &ctx->iocb[buffer_idx];
   memset(_iocb, 0, sizeof(*_iocb));
-  _iocb->aio_fildes = callback->slab->fd;
+  _iocb->aio_fildes = s->fd;
   _iocb->aio_lio_opcode = IOCB_CMD_PREAD;
   _iocb->aio_buf = (uint64_t)disk_page;
   _iocb->aio_data = (uint64_t)callback;

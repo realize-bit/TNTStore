@@ -298,6 +298,14 @@ tree_entry_t *centree_worker_lookup(void *key) {
   return centree_lookup(centree_root, key, tnt_pointer_cmp);
 }
 
+uint64_t tnt_get_depth(void) {
+  uint64_t depth;
+  R_LOCK(&centree_root_lock);
+  depth = centree_get_depth(centree_root);
+  R_UNLOCK(&centree_root_lock);
+  return depth;
+}
+
 void centree_worker_insert(int worker_id, void *item, tree_entry_t *e) {
   centree_node n;
   W_LOCK(&centree_root_lock);
@@ -681,7 +689,7 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   uint64_t key = *(uint64_t *)item_key;
   centree_node n;
   index_entry_t *e = NULL, *tmp = NULL;
-  int tmp_try = 0;
+  int tmp_try = 0, upward_len = 1;
 
   // Leaf node까지 내려가는 과정
   //R_LOCK(&centree_root_lock);
@@ -708,20 +716,20 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
     if (s->min != -1) {
 #if WITH_FILTER
       if (filter_contain(s->filter, (unsigned char *)&key)) {
-        #endif
-	if (key <= s->max && key >= s->min) {
+#endif
+	    if (key <= s->max && key >= s->min) {
           tmp = subtree_worker_lookup_utree(s->subtree, item);
-	}
+	    }
         if (tmp) {
           //  && !TEST_INVAL(tmp->slab_idx)
           //  이 조건을 지웠는데, update의 lock을 최소화하기 위해서
           //  1. 지운다. 2. 추가한다 이 과정에서 1-2 사이에 있는 중일 수 있음
           e = tmp;
           R_UNLOCK(&s->tree_lock);
-	  if (tmp_try > try) {
-	    try = tmp_try;
-	    try_key = key;
-	  }
+	          if (tmp_try > try) {
+	            try = tmp_try;
+	            try_key = key;
+	          }
           //printf("[%lu] try: %d\n", key, try);
           break;
         }
@@ -732,12 +740,16 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
     R_UNLOCK(&s->tree_lock);
 
     // 부모 노드로 이동
+    upward_len++;
     n = n->lu_parent;  // parent 필드를 추가하고, 부모 노드로 이동
   }
   add_time_in_payload(cb, 3);
   // printf("%d", try);
-
-  if (e) return e;
+  
+  if (e){
+    e->slab->upward_maxlen = upward_len;
+    return e;
+  }
   return NULL;
 }
 

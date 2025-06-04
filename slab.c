@@ -43,6 +43,22 @@ static off_t item_in_page_offset(struct slab *s, size_t idx) {
   return (idx % items_per_page) * s->item_size;
 }
 
+#if WITH_HOT
+void mark_page_hot(struct slab *s, size_t page_idx) {
+    // 1) 몇 번째 워드(word)에 해당하는지, 몇 번째 비트(bit)에 해당하는지 계산
+    size_t word_idx = page_idx / 64;
+    size_t bit_pos  = page_idx % 64;
+
+    // 2) 워드당 1ULL<<bit_pos를 OR하면 해당 비트가 켜짐
+    uint64_t mask = (1ULL << bit_pos);
+
+    // 3) __sync_fetch_and_or를 사용해서 “원자적으로” 비트 세팅
+    __sync_fetch_and_or(&s->hot_bits[word_idx], mask);
+    //   → 기존 hot_bits[word_idx]에 mask 비트를 OR하고, 
+    //     연산 전(old value)을 반환. (반환 값이 필요 없으면 쓰지 않아도 됨)
+}
+#endif
+
 /*
  * Create a slab: a file that only contains items of a given size.
  * @callback is a callback that will be called on all previously existing items
@@ -89,12 +105,19 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   s->min = -1;
   s->key = key;
   s->seq = cur_seq;
-  atomic_init(&s->cur_ep, 1);
-  atomic_init(&s->epcnt, 0);
-  atomic_init(&s->prev_epcnt, 0);
 
   atomic_init(&s->full, 0);
   atomic_init(&s->last_item, 0);
+
+  #if WITH_HOT
+  atomic_init(&s->queued, 0);
+  atomic_init(&s->upward_maxlen, 0);
+  atomic_init(&s->cur_ep, 1);
+  atomic_init(&s->epcnt, 0);
+  atomic_init(&s->prev_epcnt, 0);
+  size_t num_words = (s->size_on_disk / 4096 + 63) / 64; 
+  s->hot_bits = calloc(num_words, sizeof(uint64_t));
+  #endif
 
    if (load)
     s->batched_callbacks = calloc(NUM_LOAD_BATCH, sizeof(struct slab_callback *));

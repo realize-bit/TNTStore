@@ -8,6 +8,7 @@
 
 #define WITH_FILTER 0
 #define WITH_RC 0
+#define WITH_HOT 1
 
 /* In memory structures */
 #define RBTREE 0

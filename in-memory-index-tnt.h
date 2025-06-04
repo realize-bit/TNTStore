@@ -49,6 +49,7 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item);
 index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, int *ttry, uint64_t *tkey);
 int tnt_index_invalid(void *item);
 
+uint64_t tnt_get_depth(void);
 void tnt_print(void);
 void tnt_rebalancing(void);
 

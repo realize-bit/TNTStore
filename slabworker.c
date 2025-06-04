@@ -290,8 +290,8 @@ again:
           callback->slab = s;
           callback->slab_idx = GET_SIDX(e->slab_idx);
           __sync_fetch_and_add(&e->slab->read_ref, 1);
-          kv_read_async_no_lookup(callback, callback->slab, callback->slab_idx,
-                                  0);
+
+          #if WITH_HOT
           uint64_t curr_epoch = atomic_load_explicit(&epoch, memory_order_acquire);
           uint64_t slab_epoch = atomic_load_explicit(&s->cur_ep, memory_order_acquire);
           uint64_t cnt = 0;
@@ -307,10 +307,27 @@ again:
             atomic_store_explicit(&s->cur_ep, curr_epoch, memory_order_release);
             atomic_store_explicit(&s->prev_epcnt, old_count, memory_order_relaxed);
             atomic_store_explicit(&s->epcnt, 1, memory_order_relaxed);
+            if (curr_epoch % 10 == 0) {
+              size_t num_words = (s->size_on_disk / 4096 + 63) / 64; 
+              for (size_t i = 0; i < num_words; i++)
+                __atomic_exchange_n(&s->hot_bits[i], 0ULL, __ATOMIC_RELAXED);
+            }
           }
-          if (cnt == (size_t)(EPOCH/10)) {
+
+          mark_page_hot(s, item_page_num(s, callback->slab_idx));
+          uint64_t tree_depth = tnt_get_depth();
+
+          // TODO 높이 제한 추가
+          if (cnt == (size_t)(EPOCH/10)
+          &&  s->upward_maxlen >= (tree_depth/2)
+          && !atomic_load_explicit(&s->queued, memory_order_acquire)) {
             printf("Reinsert: %lu\n", s->seq);
+            atomic_store_explicit(&s->queued, 1, memory_order_relaxed);
+            bgq_enqueue(GC, s);
           }
+        #endif
+          kv_read_async_no_lookup(callback, callback->slab, callback->slab_idx,
+                                  0);
         }
         break;
       case ADD:

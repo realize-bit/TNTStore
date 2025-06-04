@@ -25,6 +25,7 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 */
 
 #include "tnt_centree.h"
+#include "../options.h"
 #include "btree.h"
 #include <assert.h>
 
@@ -38,6 +39,7 @@ struct slab {
   uint64_t min;
   uint64_t max;
   uint64_t seq;
+
   void *subtree;
   void *centree_node;
 #if WITH_FILTER
@@ -52,9 +54,13 @@ struct slab {
   size_t nb_max_items;
   _Atomic size_t last_item;  // Total number of items, including freed
 
+  #if WITH_HOT
   _Atomic size_t cur_ep;
   _Atomic size_t epcnt;
   _Atomic size_t prev_epcnt;
+
+  uint64_t *hot_bits;
+  #endif
 
   int fd;
   size_t size_on_disk;
@@ -64,6 +70,7 @@ struct slab {
   unsigned char nb_batched;
   struct slab_callback **batched_callbacks;
 };
+
 
 typedef centree_node node;
 
@@ -128,6 +135,7 @@ centree centree_create() {
   centree t = malloc(sizeof(struct centree_t));
   t->root = NULL;
   t->last_visited_node = NULL;
+  t->depth = 0;
   bgqueue = malloc(sizeof(background_queue));
   init_queue(bgqueue);
   return t;
@@ -164,6 +172,10 @@ node lookup_node(centree t, void *key, compare_func compare) {
   return n;
 }
 
+uint64_t centree_get_depth(centree t) {
+  return t->depth;
+}
+
 tree_entry_t *centree_lookup(centree t, void *key, compare_func compare) {
   node n = lookup_node(t, key, compare);
   return n == NULL ? NULL : &n->value;
@@ -172,7 +184,7 @@ tree_entry_t *centree_lookup(centree t, void *key, compare_func compare) {
 node centree_insert(centree t, void *key, tree_entry_t *value,
                     compare_func compare) {
   node inserted_node = new_node(key, value, NULL, NULL);
-  uint64_t level = 0;
+  uint64_t level = 1;
 
   if (t->root == NULL) {
     t->root = inserted_node;
@@ -202,6 +214,8 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
     inserted_node->parent = n;
     inserted_node->lu_parent = n;
   }
+  if (t->depth < level)
+    t->depth = level;
   value->level = level;
   inserted_node->value = *value;
   return inserted_node;
@@ -284,15 +298,22 @@ void print2DUtil(node n, int space) {
   // count
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
-  if (n->value.slab->min != -1)
+  if (n->value.slab->min != -1) {
+#if WITH_HOT
     printf("%lu,%lu:%lu//%lu,%lu,%lu\n", n->value.seq, n->value.level,
            n->value.slab->nb_items, 
            atomic_load_explicit(&n->value.slab->cur_ep, memory_order_relaxed), 
            atomic_load_explicit(&n->value.slab->prev_epcnt, memory_order_relaxed), 
            atomic_load_explicit(&n->value.slab->epcnt, memory_order_relaxed)
            );
+#else
+    printf("%lu,%lu:%lu\n", n->value.seq, n->value.level,
+           n->value.slab->nb_items
+           );
+#endif
+  }
   else
-    printf("%lu,%lu:0//0\n", n->value.seq, n->value.level);
+    printf("%lu,%lu:0\n", n->value.seq, n->value.level);
 
   // Process left child
   print2DUtil(n->left, space);

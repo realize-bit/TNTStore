@@ -33,6 +33,7 @@ struct slab {
   uint64_t min;
   uint64_t max;
   uint64_t seq;
+
   void *subtree;
   void *centree_node;
 #if WITH_FILTER
@@ -47,9 +48,15 @@ struct slab {
   size_t nb_max_items;
   _Atomic size_t last_item;  // Total number of items, including freed
 
+  #if WITH_HOT
+  _Atomic int queued;
+  _Atomic int upward_maxlen;
   _Atomic size_t cur_ep;
   _Atomic size_t epcnt;
   _Atomic size_t prev_epcnt;
+
+  uint64_t *hot_bits;
+  #endif
 
   int fd;
   size_t size_on_disk;
@@ -106,8 +113,6 @@ struct slab_callback {
 
 void add_in_tree_for_update(struct slab_callback *cb, void *item);
 
-//struct slab *create_slab(struct slab_context *ctx, uint64_t level,
-//                         uint64_t key);
 struct slab *resize_slab(struct slab *s);
 
 void *read_item(struct slab *s, size_t idx);
@@ -119,6 +124,9 @@ void remove_item_async(struct slab_callback *callback);
 void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
+#if WITH_HOT
+void mark_page_hot(struct slab *s, size_t page_idx);
+#endif
 
 int rebuild_slabs(int filenum, struct dirent **file_list);
 int create_root_slab(void);

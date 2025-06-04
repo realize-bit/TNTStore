@@ -70,7 +70,6 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   if (s->full && s->seq < rc_thr &&
     !__sync_fetch_and_or(&s->update_ref, 0) &&
     !((centree_node)s->centree_node)->removed) {
-    printf("Enqueue: %lu, %d", s->seq, rc_thr);
     enqueue = 1;
     ((centree_node)s->centree_node)->removed = 1;
   }
