@@ -126,6 +126,7 @@ static void *fsst_worker(void *pdata) {
 #if WITH_HOT
   int j = 0;
   if (!bgq_is_empty(GC)) {
+    int updated = 0;
     for (j = 0; j < HOT_BATCH; j++) {
       struct slab *s = (struct slab*)bgq_dequeue(GC);
 
@@ -135,6 +136,9 @@ static void *fsst_worker(void *pdata) {
       struct slab_callback *cb;
 
       printf("GC: %lu\n", s->seq);
+      size_t nread = pread(s->fd, gc_buf, s->size_on_disk, 0);
+      if (nread < 0) perror("pread GC");
+
       for (size_t w = 0; w < num_words; w++) {
         uint64_t word = __atomic_load_n(&s->hot_bits[w], __ATOMIC_RELAXED);
         if (word == 0) {
@@ -150,9 +154,6 @@ static void *fsst_worker(void *pdata) {
           // (나) 슬랩 내 실제 페이지 인덱스로 변환
           size_t page_idx = w * 64 + (size_t)bit_pos;
           off_t offset = (off_t)page_idx * PAGE_SIZE;
-          size_t nread = pread(s->fd, gc_buf, PAGE_SIZE, offset);
-
-          if (nread < 0) perror("pread GC");
 
           // (다) 콜백 호출
           // 페이지 안에 들어 있는 KV 개수
@@ -185,7 +186,7 @@ static void *fsst_worker(void *pdata) {
             }
             memcpy(
               cb->item,
-              &gc_buf[(cb->slab_idx % num_kvs) * s->item_size],  // 페이지 내에서 kv_i 번째 바이트 오프셋
+	      &gc_buf[offset + kv_i * s->item_size],
               s->item_size
             );
             struct item_metadata *meta = (struct item_metadata *)cb->item;
@@ -201,14 +202,28 @@ static void *fsst_worker(void *pdata) {
               printf("page_idx: %lu, kv_idx: %lu\n", page_idx, kv_i);
             }
             // (4) 비동기 업데이트 호출
-            kv_update_async(cb);
+    	    index_entry_t *e = NULL;
+    	    struct tree_entry *tree = NULL;
+            tree = centree_lookup_and_reserve(cb->item, 
+                          &cb->slab_idx, &e);
+	    cb->slab = tree->slab;
+
+            //kv_update_async(cb);
+            remove_and_add_item_async(cb);
+	    //free(cb->item);
+	    //free(cb);
+	    updated++;
           }
 
           // (라) 처리한 비트를 워드에서 지운다.
           word &= ~(1ULL << bit_pos);
         }
-        atomic_store_explicit(&s->queued, 0, memory_order_relaxed);
+	//if (updated >= 512) {
+	//  sleep(1);
+	//  updated = 0;
+	//}
       }
+      atomic_store_explicit(&s->queued, 0, memory_order_relaxed);
     }
   }
 #endif
@@ -229,7 +244,7 @@ void sleep_until_fsstq_empty(void) {
 void fsst_worker_init(void) {
   pthread_t t;
 #if WITH_HOT
-  gc_buf = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+  gc_buf = aligned_alloc(PAGE_SIZE, MAX_FILE_SIZE);
 #endif
   pthread_create(&t, NULL, fsst_worker, NULL);
 }

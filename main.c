@@ -14,9 +14,9 @@ int main(int argc, char **argv) {
   /* Definition of the workload, if changed you need to erase the DB before
    * relaunching */
   struct workload w = {
-      .api = &YCSB,
+      //.api = &YCSB,
       //.api = &DBBENCH,
-      //.api = &BGWORK,
+      .api = &BGWORK,
       .nb_items_in_db = 100000000LU,
       .nb_load_injectors = 4,
   };
@@ -106,11 +106,6 @@ int main(int argc, char **argv) {
   // sleep(5);
   // cache_hit = 0;
   //tnt_rebalancing();
-  fsst_worker_init();
-  start_timer {
-    sleep_until_fsstq_empty();
-  }
-  stop_timer("Remaining RC operations");
 
   if (w.api == &BGWORK) {
     start_timer {
@@ -119,16 +114,22 @@ int main(int argc, char **argv) {
     stop_timer("Init array for reinsertion test");
   }
 
-  //start_timer {
-  //  tnt_rebalancing();
-  //}
-  //stop_timer("Rebalancing operations");
-
   //fsst_worker_init();
   //start_timer {
   //  sleep_until_fsstq_empty();
   //}
-  //stop_timer("Reinsertion operations");
+  //stop_timer("Remaining RC operations");
+
+  start_timer {
+    tnt_rebalancing();
+  }
+  stop_timer("Rebalancing operations");
+
+  fsst_worker_init();
+  start_timer {
+    sleep_until_fsstq_empty();
+  }
+  stop_timer("Reinsertion operations");
 
   foreach (workload, workloads) {
     if (workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {

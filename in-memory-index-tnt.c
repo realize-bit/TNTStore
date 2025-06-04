@@ -747,7 +747,9 @@ index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
   // printf("%d", try);
   
   if (e){
+#if WITH_HOT
     e->slab->upward_maxlen = upward_len;
+#endif
     return e;
   }
   return NULL;

@@ -55,6 +55,8 @@ struct slab {
   _Atomic size_t last_item;  // Total number of items, including freed
 
   #if WITH_HOT
+  _Atomic int queued;
+  _Atomic int upward_maxlen;
   _Atomic size_t cur_ep;
   _Atomic size_t epcnt;
   _Atomic size_t prev_epcnt;
