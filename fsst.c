@@ -90,7 +90,7 @@ void skip_or_invalidate_index_fsst(void *slab, uint64_t slab_idx) {
 tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
 
 #define NODE_BATCH 128
-#define HOT_BATCH 8
+#define HOT_BATCH 128
 
 static void *fsst_worker(void *pdata) {
   //tnt_rebalancing();
@@ -132,7 +132,7 @@ static void *fsst_worker(void *pdata) {
 
       if (!s) goto fsst_sleep;
 
-      size_t num_words = (s->size_on_disk / 4096 + 63) / 64; 
+      size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
       struct slab_callback *cb;
 
       printf("GC: %lu\n", s->seq);

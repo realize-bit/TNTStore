@@ -83,6 +83,7 @@ void cp_old_keys(size_t *prev, uint64_t nb_items_in_db) {
   oldkey_size = nb_items_in_db;
   old_keys = malloc(oldkey_size * sizeof(uint64_t));
   memcpy(old_keys, prev, sizeof(uint64_t) * oldkey_size);
+  printf("old cpy: %lu\n", oldkey_size);
 }
 
 void init_old_keys(uint64_t nb_items_in_db) {

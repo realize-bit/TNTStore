@@ -51,6 +51,10 @@ void mark_page_hot(struct slab *s, size_t page_idx) {
 
     // 2) 워드당 1ULL<<bit_pos를 OR하면 해당 비트가 켜짐
     uint64_t mask = (1ULL << bit_pos);
+    if (word_idx > 255) {
+	printf("s: %lu, page: %lu, word: %lu, bit: %lu\n", s->seq, page_idx, word_idx, bit_pos);
+	die("WHAT");
+    }
 
     // 3) __sync_fetch_and_or를 사용해서 “원자적으로” 비트 세팅
     __sync_fetch_and_or(&s->hot_bits[word_idx], mask);
@@ -115,7 +119,7 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   atomic_init(&s->cur_ep, 1);
   atomic_init(&s->epcnt, 0);
   atomic_init(&s->prev_epcnt, 0);
-  size_t num_words = (s->size_on_disk / 4096 + 63) / 64; 
+  size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
   s->hot_bits = calloc(num_words, sizeof(uint64_t));
   #endif
 

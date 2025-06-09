@@ -292,6 +292,10 @@ void swizzle_by_slab(size_t *arr, size_t nb_items, double x_percent) {
     if (node->left)  bgq_enqueue(GC, node->left);
     if (node->right) bgq_enqueue(GC, node->right);
   }
+
+  while (!bgq_is_empty(GC)) {
+    bgq_dequeue(GC);
+  }
 }
 
 tree_entry_t *centree_worker_lookup(void *key) {
@@ -299,11 +303,7 @@ tree_entry_t *centree_worker_lookup(void *key) {
 }
 
 uint64_t tnt_get_depth(void) {
-  uint64_t depth;
-  R_LOCK(&centree_root_lock);
-  depth = centree_get_depth(centree_root);
-  R_UNLOCK(&centree_root_lock);
-  return depth;
+  return centree_get_depth(centree_root);
 }
 
 void centree_worker_insert(int worker_id, void *item, tree_entry_t *e) {

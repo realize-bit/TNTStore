@@ -189,7 +189,7 @@ void repopulate_db(struct workload *w) {
 
 #if INSERT_MODE == RANDOM
     if (w->api == &BGWORK)
-      shuffle_ranges(pos, nb_inserts, MAX_FILE_SIZE/KV_SIZE);  
+      shuffle_ranges(pos, nb_inserts, 100000000);  
     else
       shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
 #endif
@@ -217,6 +217,7 @@ void repopulate_db(struct workload *w) {
   stop_timer("Repopulating %lu elements (%lu req/s)", nb_inserts,
              nb_inserts * 1000000 / elapsed);
 
+  cp_old_keys(pos, nb_inserts);
   free(pos);
 }
 

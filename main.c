@@ -114,22 +114,16 @@ int main(int argc, char **argv) {
   //  stop_timer("Init array for reinsertion test");
   //}
 
+  //start_timer {
+  //  tnt_rebalancing();
+  //}
+  //stop_timer("Rebalancing operations");
+
   //fsst_worker_init();
   //start_timer {
   //  sleep_until_fsstq_empty();
   //}
-  //stop_timer("Remaining RC operations");
-
-  start_timer {
-    tnt_rebalancing();
-  }
-  stop_timer("Rebalancing operations");
-
-  fsst_worker_init();
-  start_timer {
-    sleep_until_fsstq_empty();
-  }
-  stop_timer("Reinsertion operations");
+  //stop_timer("Reinsertion operations");
 
   foreach (workload, workloads) {
     if (workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {

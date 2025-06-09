@@ -137,7 +137,7 @@ centree centree_create() {
   centree t = malloc(sizeof(struct centree_t));
   t->root = NULL;
   t->last_visited_node = NULL;
-  t->depth = 0;
+  atomic_init(&t->depth, 0);
   bgqueue = malloc(sizeof(background_queue));
   init_queue(bgqueue);
   return t;
@@ -175,7 +175,7 @@ node lookup_node(centree t, void *key, compare_func compare) {
 }
 
 uint64_t centree_get_depth(centree t) {
-  return t->depth;
+  return atomic_load_explicit(&t->depth, memory_order_acquire);
 }
 
 tree_entry_t *centree_lookup(centree t, void *key, compare_func compare) {
@@ -216,8 +216,8 @@ node centree_insert(centree t, void *key, tree_entry_t *value,
     inserted_node->parent = n;
     inserted_node->lu_parent = n;
   }
-  if (t->depth < level)
-    t->depth = level;
+  if (atomic_load_explicit(&t->depth, memory_order_acquire) < level)
+    atomic_store_explicit(&t->depth, level, memory_order_release);
   value->level = level;
   inserted_node->value = *value;
   return inserted_node;
