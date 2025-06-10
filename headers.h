@@ -38,5 +38,6 @@
 #include "freelist.h"
 
 #include "workload-common.h"
+#include "config.h"
 
 #endif

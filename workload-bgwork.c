@@ -7,7 +7,7 @@
 
 static char *_create_unique_item_bgwork(uint64_t uid) {
   uid = get_old_key(uid);
-  size_t item_size = KV_SIZE;
+  size_t item_size = cfg.kv_size;
   // size_t item_size = sizeof(struct item_metadata) + 2*sizeof(size_t);
   return create_unique_item(item_size, uid);
 }

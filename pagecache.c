@@ -28,10 +28,10 @@ void page_cache_init(struct pagecache *p) {
   start_timer {
     printf("#Reserving memory for page cache...\n");
     p->cached_data =
-        aligned_alloc(PAGE_SIZE, PAGE_CACHE_SIZE / get_nb_workers());
+        aligned_alloc(PAGE_SIZE, cfg.page_cache_size / get_nb_workers());
     assert(p->cached_data);  // If it fails here, it's probably because page
                              // cache size is bigger than RAM -- see options.h
-    memset(p->cached_data, 0, PAGE_CACHE_SIZE / get_nb_workers());
+    memset(p->cached_data, 0, cfg.page_cache_size / get_nb_workers());
   }
   stop_timer("Page cache initialization");
 

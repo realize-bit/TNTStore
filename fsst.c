@@ -1,19 +1,140 @@
 #include "headers.h"
 #include <errno.h>
 
-static int cur = 0;
-static char *vict_file_fsst = NULL;
-static int doing = 0;
-
-#if WITH_HOT
 static char *gc_buf;
+int cur = 0;
 
 void cb_gc(struct slab_callback *cb, void *item){
   free(cb->item);
   free(cb);
 }
-#endif
 
+tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
+
+#define HOT_BATCH 128
+
+static void *fsst_worker(void *pdata) {
+  //tnt_rebalancing();
+
+  while (1) {
+    if (bgq_is_empty(GC)) {
+      goto fsst_sleep;
+    }
+
+  if (!bgq_is_empty(GC)) {
+    int updated = 0;
+    for (int j = 0; j < HOT_BATCH; j++) {
+      struct slab *s = (struct slab*)bgq_dequeue(GC);
+
+      if (!s) goto fsst_sleep;
+
+      size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
+      struct slab_callback *cb;
+
+      printf("GC: %lu\n", s->seq);
+      size_t nread = pread(s->fd, gc_buf, s->size_on_disk, 0);
+      if (nread < 0) perror("pread GC");
+
+      for (size_t w = 0; w < num_words; w++) {
+        uint64_t word = __atomic_load_n(&s->hot_bits[w], __ATOMIC_RELAXED);
+        if (word == 0) {
+          // 이 워드에 세트된 비트가 하나도 없으므로, 다음 워드로
+          continue;
+        }
+
+        __atomic_store_n(&s->hot_bits[w], 0ULL, __ATOMIC_RELAXED);
+
+        while (word != 0) {
+          // (가) 워드 내 최하위 세트 비트(0~63)를 찾는다.
+          int bit_pos = __builtin_ctzll(word);
+          // (나) 슬랩 내 실제 페이지 인덱스로 변환
+          size_t page_idx = w * 64 + (size_t)bit_pos;
+          off_t offset = (off_t)page_idx * PAGE_SIZE;
+
+          // (다) 콜백 호출
+          // 페이지 안에 들어 있는 KV 개수
+          size_t num_kvs = PAGE_SIZE / s->item_size;
+
+          // 페이지 내 모든 KV를 순회
+          for (size_t kv_i = 0; kv_i < num_kvs; kv_i++) {
+          // (1) 콜백 구조체 할당
+            cb = malloc(sizeof(*cb));
+            if (!cb) {
+              perror("slab_callback malloc 실패");
+              exit(1);
+            }
+
+            // (2) cb 필드 초기화 (필요한 멤버만 예시로 채웠습니다)
+            cb->cb       = cb_gc;        // 실제 실행할 콜백 함수 포인터
+            cb->cb_cb    = NULL;
+            cb->payload  = NULL;
+            cb->slab     = s;
+            cb->slab_idx  = page_idx * (PAGE_SIZE / cfg.kv_size) + kv_i;  
+            // “페이지 안 몇 번째 KV”인지도 기록하고 싶으면
+            cb->fsst_slab = s;
+            cb->fsst_idx  = page_idx * (PAGE_SIZE / cfg.kv_size) + kv_i;  
+
+            // (3) KV 크기만큼 메모리 할당한 뒤, 페이지에서 해당 KV를 복사
+            cb->item = malloc(s->item_size);
+            if (!cb->item) {
+              perror("item malloc 실패");
+              exit(1);
+            }
+            memcpy(
+              cb->item,
+	      &gc_buf[offset + kv_i * s->item_size],
+              s->item_size
+            );
+            struct item_metadata *meta = (struct item_metadata *)cb->item;
+            size_t size = sizeof(*meta) + meta->key_size + meta->value_size;
+            char *item_key = &cb->item[sizeof(*meta)];
+            uint64_t key = *(uint64_t *)item_key;
+            if (size != s->item_size) {
+              printf("key: %lu, pgoff: %lu, size: %lu\n", key, offset, size);
+              printf("page_idx: %lu, kv_idx: %lu\n", page_idx, kv_i);
+            }
+            if (key > 100000000) {
+              printf("key: %lu, pgoff: %lu, size: %lu\n", key, offset, size);
+              printf("page_idx: %lu, kv_idx: %lu\n", page_idx, kv_i);
+            }
+            // (4) 비동기 업데이트 호출
+    	    index_entry_t *e = NULL;
+    	    struct tree_entry *tree = NULL;
+            tree = centree_lookup_and_reserve(cb->item, 
+                          &cb->slab_idx, &e);
+	    cb->slab = tree->slab;
+
+            //kv_update_async(cb);
+            remove_and_add_item_async(cb);
+	    //free(cb->item);
+	    //free(cb);
+	    updated++;
+          }
+
+          // (라) 처리한 비트를 워드에서 지운다.
+          word &= ~(1ULL << bit_pos);
+        }
+	//if (updated >= 512) {
+	//  sleep(1);
+	//  updated = 0;
+	//}
+      }
+      atomic_store_explicit(&s->queued, 0, memory_order_relaxed);
+    }
+  }
+fsst_sleep:
+    sleep(1);
+  }
+}
+
+void fsst_worker_init(void) {
+  pthread_t t;
+  gc_buf = aligned_alloc(PAGE_SIZE, cfg.max_file_size);
+  pthread_create(&t, NULL, fsst_worker, NULL);
+}
+
+
+#if 0
 void check_and_remove_tree(struct slab_callback *cb, void *item) {
   struct slab *s = cb->fsst_slab;
   free(cb->item);
@@ -31,6 +152,9 @@ void check_and_remove_tree(struct slab_callback *cb, void *item) {
   s->min = -1;
   s->max = 0;
   subtree_free(s->subtree);
+  if (cfg.with_reins)
+    free(s->hot_bits);
+
 #if WITH_FILTER
   filter_delete(s->filter);
 #endif
@@ -83,33 +207,12 @@ void skip_or_invalidate_index_fsst(void *slab, uint64_t slab_idx) {
   R_LOCK(&s->tree_lock);
   return;
 }
-// victim node 선택하기
-// get_garbage_node();
 
-// 그냥 직접 노드 선택하기 (뭘 기준으로?)
-tree_entry_t *pick_garbage_node() { return tnt_traverse_use_seq(cur++); }
 
-#define NODE_BATCH 128
-#define HOT_BATCH 128
-
-static void *fsst_worker(void *pdata) {
-  //tnt_rebalancing();
-//
-  vict_file_fsst = aligned_alloc(PAGE_SIZE, MAX_FILE_SIZE);
-  if (!vict_file_fsst) die("FSST Static Buf Error\n");
-
-  while (1) {
-    if (bgq_is_empty(FSST)) {
-#if WITH_HOT
-      if (bgq_is_empty(GC)) {
-#endif
-        goto fsst_sleep;
-#if WITH_HOT
-      }
-#endif
-    }
-
-  if (!bgq_is_empty(FSST)) {
+static char *vict_file_fsst = NULL;
+vict_file_fsst = aligned_alloc(PAGE_SIZE, cfg.max_file_size);
+if (!vict_file_fsst) die("FSST Static Buf Error\n");
+if (!bgq_is_empty(FSST)) {
     doing = 1;
     for (size_t i = 0; i < NODE_BATCH; i++) {
       tree_entry_t *victim = (tree_entry_t *)bgq_dequeue(FSST);
@@ -122,129 +225,4 @@ static void *fsst_worker(void *pdata) {
       R_UNLOCK(&victim->slab->tree_lock);
     }
   }
-
-#if WITH_HOT
-  int j = 0;
-  if (!bgq_is_empty(GC)) {
-    int updated = 0;
-    for (j = 0; j < HOT_BATCH; j++) {
-      struct slab *s = (struct slab*)bgq_dequeue(GC);
-
-      if (!s) goto fsst_sleep;
-
-      size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
-      struct slab_callback *cb;
-
-      printf("GC: %lu\n", s->seq);
-      size_t nread = pread(s->fd, gc_buf, s->size_on_disk, 0);
-      if (nread < 0) perror("pread GC");
-
-      for (size_t w = 0; w < num_words; w++) {
-        uint64_t word = __atomic_load_n(&s->hot_bits[w], __ATOMIC_RELAXED);
-        if (word == 0) {
-          // 이 워드에 세트된 비트가 하나도 없으므로, 다음 워드로
-          continue;
-        }
-
-        __atomic_store_n(&s->hot_bits[w], 0ULL, __ATOMIC_RELAXED);
-
-        while (word != 0) {
-          // (가) 워드 내 최하위 세트 비트(0~63)를 찾는다.
-          int bit_pos = __builtin_ctzll(word);
-          // (나) 슬랩 내 실제 페이지 인덱스로 변환
-          size_t page_idx = w * 64 + (size_t)bit_pos;
-          off_t offset = (off_t)page_idx * PAGE_SIZE;
-
-          // (다) 콜백 호출
-          // 페이지 안에 들어 있는 KV 개수
-          size_t num_kvs = PAGE_SIZE / s->item_size;
-
-          // 페이지 내 모든 KV를 순회
-          for (size_t kv_i = 0; kv_i < num_kvs; kv_i++) {
-          // (1) 콜백 구조체 할당
-            cb = malloc(sizeof(*cb));
-            if (!cb) {
-              perror("slab_callback malloc 실패");
-              exit(1);
-            }
-
-            // (2) cb 필드 초기화 (필요한 멤버만 예시로 채웠습니다)
-            cb->cb       = cb_gc;        // 실제 실행할 콜백 함수 포인터
-            cb->cb_cb    = NULL;
-            cb->payload  = NULL;
-            cb->slab     = s;
-            cb->slab_idx  = page_idx * (PAGE_SIZE / KV_SIZE) + kv_i;  
-            // “페이지 안 몇 번째 KV”인지도 기록하고 싶으면
-            cb->fsst_slab = s;
-            cb->fsst_idx  = page_idx * (PAGE_SIZE / KV_SIZE) + kv_i;  
-
-            // (3) KV 크기만큼 메모리 할당한 뒤, 페이지에서 해당 KV를 복사
-            cb->item = malloc(s->item_size);
-            if (!cb->item) {
-              perror("item malloc 실패");
-              exit(1);
-            }
-            memcpy(
-              cb->item,
-	      &gc_buf[offset + kv_i * s->item_size],
-              s->item_size
-            );
-            struct item_metadata *meta = (struct item_metadata *)cb->item;
-            size_t size = sizeof(*meta) + meta->key_size + meta->value_size;
-            char *item_key = &cb->item[sizeof(*meta)];
-            uint64_t key = *(uint64_t *)item_key;
-            if (size != s->item_size) {
-              printf("key: %lu, pgoff: %lu, size: %lu\n", key, offset, size);
-              printf("page_idx: %lu, kv_idx: %lu\n", page_idx, kv_i);
-            }
-            if (key > 100000000) {
-              printf("key: %lu, pgoff: %lu, size: %lu\n", key, offset, size);
-              printf("page_idx: %lu, kv_idx: %lu\n", page_idx, kv_i);
-            }
-            // (4) 비동기 업데이트 호출
-    	    index_entry_t *e = NULL;
-    	    struct tree_entry *tree = NULL;
-            tree = centree_lookup_and_reserve(cb->item, 
-                          &cb->slab_idx, &e);
-	    cb->slab = tree->slab;
-
-            //kv_update_async(cb);
-            remove_and_add_item_async(cb);
-	    //free(cb->item);
-	    //free(cb);
-	    updated++;
-          }
-
-          // (라) 처리한 비트를 워드에서 지운다.
-          word &= ~(1ULL << bit_pos);
-        }
-	//if (updated >= 512) {
-	//  sleep(1);
-	//  updated = 0;
-	//}
-      }
-      atomic_store_explicit(&s->queued, 0, memory_order_relaxed);
-    }
-  }
 #endif
-
-    fsst_sleep:
-      doing = 0;
-    sleep(1);
-  }
-}
-
-void sleep_until_fsstq_empty(void) {
-  while (!bgq_is_empty(FSST) || doing) {
-    NOP10();
-  }
-  return;
-}
-
-void fsst_worker_init(void) {
-  pthread_t t;
-#if WITH_HOT
-  gc_buf = aligned_alloc(PAGE_SIZE, MAX_FILE_SIZE);
-#endif
-  pthread_create(&t, NULL, fsst_worker, NULL);
-}

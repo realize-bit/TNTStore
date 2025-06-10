@@ -98,7 +98,7 @@ void init_old_keys(uint64_t nb_items_in_db) {
 
   for (size_t i = 0; i < oldkey_size; i++) old_keys[i] = i;
 
-  swizzle_by_slab(old_keys, nb_items_in_db, OLD_PERCENT);
+  swizzle_by_slab(old_keys, nb_items_in_db, cfg.old_percent);
 }
 
 uint64_t get_old_key(size_t position) {

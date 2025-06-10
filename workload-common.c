@@ -1,7 +1,6 @@
 #include "headers.h"
 
 extern uint64_t nb_totals;
-extern int rc_thr;
 /*
  * Create a workload item for the database
  */
@@ -66,13 +65,6 @@ void add_in_tree(struct slab_callback *cb, void *item) {
 
   __sync_fetch_and_sub(&s->update_ref, 1);
 
-  //printf("level %lu, %d\n", ((centree_node)s->centree_node)->value.level, rc_thr);
-  if (s->full && s->seq < rc_thr &&
-    !__sync_fetch_and_or(&s->update_ref, 0) &&
-    !((centree_node)s->centree_node)->removed) {
-    enqueue = 1;
-    ((centree_node)s->centree_node)->removed = 1;
-  }
   // if (s->last_item == s->nb_max_items)
   // s->imm = 1;
 
@@ -98,10 +90,6 @@ void add_in_tree(struct slab_callback *cb, void *item) {
   W_UNLOCK(&s->tree_lock);
 
   __sync_fetch_and_add(&nb_totals, 1);
-
-#if WITH_RC
-  if (enqueue) bgq_enqueue(FSST, s->centree_node);
-#endif
 
   if (!cb->cb_cb) {
     free(cb->item);
@@ -179,20 +167,18 @@ void repopulate_db(struct workload *w) {
         "might take a while. (Feel free to comment but then the database will "
         "be sorted and scans much faster -- unfair vs other systems)\n");
     pos = malloc(w->nb_items_in_db * sizeof(*pos));
-#if INSERT_MODE == ASCEND || INSERT_MODE == RANDOM
-    for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = i;
-#endif
+    if (cfg.insert_mode == ASCEND || cfg.insert_mode == RANDOM)
+    	for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = i;
 
-#if INSERT_MODE == DESCEND
-    for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
-#endif
+    if (cfg.insert_mode == DESCEND)
+    	for (size_t i = 0; i < w->nb_items_in_db; i++) pos[i] = w->nb_items_in_db - 1 - i;
 
-#if INSERT_MODE == RANDOM
-    if (w->api == &BGWORK)
-      shuffle_ranges(pos, nb_inserts, 100000000);  
-    else
-      shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
-#endif
+    if (cfg.insert_mode == RANDOM) {
+    	if (w->api == &BGWORK)
+    	  shuffle_ranges(pos, nb_inserts, 100000000);  
+    	else
+    	  shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
+    }
   }
   stop_timer("Big array of random positions");
 

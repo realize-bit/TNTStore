@@ -47,7 +47,6 @@ typedef struct centree_node_t {
 
 typedef struct centree_t {
   centree_node root;
-  centree_node last_visited_node;
   _Atomic uint64_t depth;
 } * centree;
 

@@ -276,45 +276,41 @@ again:
         break;
       case READ_NO_LOOKUP: {
         // slab idx에 카운트 담아옴
-        #if WITH_HOT
-        struct slab *s = callback->slab;
-        uint64_t curr_epoch = atomic_load_explicit(&epoch, memory_order_acquire);
-        uint64_t slab_epoch = atomic_load_explicit(&s->cur_ep, memory_order_acquire);
-        uint64_t cnt = 0;
+	if (cfg.with_reins) {
+          struct slab *s = callback->slab;
+          uint64_t curr_epoch = atomic_load_explicit(&epoch, memory_order_acquire);
+          uint64_t slab_epoch = atomic_load_explicit(&s->cur_ep, memory_order_acquire);
+          uint64_t cnt = 0;
 
-        if (slab_epoch == curr_epoch) {
-           // 같은 에포크: epcount만 증가
-           cnt = atomic_fetch_add_explicit(&s->epcnt, 1, memory_order_relaxed);
-	 } else {
-           // 에포크가 바뀌었으므로, 
-           // cur_ep를 최신으로 바꾸고 epcount→prev_epcount 교환 후 epcount=1
-           uint64_t old_count = atomic_exchange_explicit(
-             &s->epcnt, 0, memory_order_relaxed);
-           atomic_store_explicit(&s->cur_ep, curr_epoch, memory_order_release);
-           atomic_store_explicit(&s->prev_epcnt, old_count, memory_order_relaxed);
-           atomic_store_explicit(&s->epcnt, 1, memory_order_relaxed);
-           if (curr_epoch % 10 == 0) {
-	     size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
-             for (size_t i = 0; i < num_words; i++)
-               __atomic_exchange_n(&s->hot_bits[i], 0ULL, __ATOMIC_RELAXED);
+          if (slab_epoch == curr_epoch) {
+             // 같은 에포크: epcount만 증가
+             cnt = atomic_fetch_add_explicit(&s->epcnt, 1, memory_order_relaxed);
+	   } else {
+             // 에포크가 바뀌었으므로, 
+             // cur_ep를 최신으로 바꾸고 epcount→prev_epcount 교환 후 epcount=1
+             uint64_t old_count = atomic_exchange_explicit(
+               &s->epcnt, 0, memory_order_relaxed);
+             atomic_store_explicit(&s->cur_ep, curr_epoch, memory_order_release);
+             atomic_store_explicit(&s->prev_epcnt, old_count, memory_order_relaxed);
+             atomic_store_explicit(&s->epcnt, 1, memory_order_relaxed);
+             if (curr_epoch % 10 == 0) {
+	       size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
+               for (size_t i = 0; i < num_words; i++)
+                 __atomic_exchange_n(&s->hot_bits[i], 0ULL, __ATOMIC_RELAXED);
+             }
            }
-         }
 
-        mark_page_hot(s, item_page_num(s, callback->slab_idx));
-        uint64_t tree_depth = tnt_get_depth();
+          mark_page_hot(s, item_page_num(s, callback->slab_idx));
+          uint64_t tree_depth = tnt_get_depth();
 
-         // TODO 높이 제한 추가
-	  //if(cnt == (size_t)(EPOCH/20)) {
-	  // printf("s: %lu, maxlen: %lu, td: %lu\n", s->seq, s->upward_maxlen, tree_depth);
-	  //}
-          if (cnt == (size_t)(EPOCH/20)
-          &&  s->upward_maxlen >= (tree_depth/3)
-          && !atomic_load_explicit(&s->queued, memory_order_acquire)) {
-            printf("Reinsert: %lu\n", s->seq);
-            atomic_store_explicit(&s->queued, 1, memory_order_relaxed);
-          bgq_enqueue(GC, s);
-        }
-        #endif
+          if (cnt == (size_t)(cfg.epoch/20)
+            &&  s->upward_maxlen >= (tree_depth/3)
+            && !atomic_load_explicit(&s->queued, memory_order_acquire)) {
+              printf("Reinsert: %lu\n", s->seq);
+              atomic_store_explicit(&s->queued, 1, memory_order_relaxed);
+            bgq_enqueue(GC, s);
+          }
+	}
         read_item_async(callback);
         break;
       }
@@ -510,7 +506,7 @@ static void *worker_distributor_init(void *pdata) {
   declare_breakdown;
   while (1) {
     ctx->rdt++;
-    if (ctx->rdt % EPOCH == 0 && ctx->worker_id == 0) {
+    if (ctx->rdt % cfg.epoch == 0 && ctx->worker_id == 0) {
       atomic_fetch_add_explicit(&epoch, 1, memory_order_seq_cst);
     }
     volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
@@ -687,8 +683,8 @@ void invalid_indexes(struct slab **sa, int snum, uint64_t *keys) {
   struct slab *s;
   int nks, nkeys;
   tree_entry_t *e;
-  uint64_t *ks = malloc((MAX_FILE_SIZE/KV_SIZE) * sizeof(uint64_t));
-  char *item = create_unique_item(KV_SIZE, 0);
+  uint64_t *ks = malloc((cfg.max_file_size/cfg.kv_size) * sizeof(uint64_t));
+  char *item = create_unique_item(cfg.kv_size, 0);
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
 

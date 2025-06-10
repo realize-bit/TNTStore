@@ -10,7 +10,6 @@
 extern int print;
 extern int load;
 extern uint64_t nb_totals;
-extern int rc_thr;
 
 /*
  * A slab is a file containing 1 or more items of a given size.
@@ -43,7 +42,6 @@ static off_t item_in_page_offset(struct slab *s, size_t idx) {
   return (idx % items_per_page) * s->item_size;
 }
 
-#if WITH_HOT
 void mark_page_hot(struct slab *s, size_t page_idx) {
     // 1) 몇 번째 워드(word)에 해당하는지, 몇 번째 비트(bit)에 해당하는지 계산
     size_t word_idx = page_idx / 64;
@@ -61,7 +59,6 @@ void mark_page_hot(struct slab *s, size_t page_idx) {
     //   → 기존 hot_bits[word_idx]에 mask 비트를 OR하고, 
     //     연산 전(old value)을 반환. (반환 값이 필요 없으면 쓰지 않아도 됨)
 }
-#endif
 
 /*
  * Create a slab: a file that only contains items of a given size.
@@ -95,16 +92,16 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
 
   fstat(s->fd, &sb);
   s->size_on_disk = sb.st_size;
-  if (!rebuild && s->size_on_disk < MAX_FILE_SIZE) {
-    fallocate(s->fd, 0, 0, MAX_FILE_SIZE);
-    s->size_on_disk = MAX_FILE_SIZE;
+  if (!rebuild && s->size_on_disk < cfg.max_file_size) {
+    fallocate(s->fd, 0, 0, cfg.max_file_size);
+    s->size_on_disk = cfg.max_file_size;
   }
 
 
-  size_t nb_items_per_page = PAGE_SIZE / KV_SIZE;
+  size_t nb_items_per_page = PAGE_SIZE / cfg.kv_size;
   s->nb_max_items = s->size_on_disk / PAGE_SIZE * nb_items_per_page;
   // TODO::JS::구조체 수정
-  s->item_size = KV_SIZE;
+  s->item_size = cfg.kv_size;
 
   s->min = -1;
   s->key = key;
@@ -113,15 +110,15 @@ struct slab *create_slab(struct slab_context *ctx, uint64_t level,
   atomic_init(&s->full, 0);
   atomic_init(&s->last_item, 0);
 
-  #if WITH_HOT
-  atomic_init(&s->queued, 0);
-  atomic_init(&s->upward_maxlen, 0);
-  atomic_init(&s->cur_ep, 1);
-  atomic_init(&s->epcnt, 0);
-  atomic_init(&s->prev_epcnt, 0);
-  size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
-  s->hot_bits = calloc(num_words, sizeof(uint64_t));
-  #endif
+  if (cfg.with_reins) {
+    atomic_init(&s->queued, 0);
+    atomic_init(&s->upward_maxlen, 0);
+    atomic_init(&s->cur_ep, 1);
+    atomic_init(&s->epcnt, 0);
+    atomic_init(&s->prev_epcnt, 0);
+    size_t num_words = (((s->size_on_disk + PAGE_SIZE - 1) / PAGE_SIZE) + 63) / 64;
+    s->hot_bits = calloc(num_words, sizeof(uint64_t));
+  }
 
    if (load)
     s->batched_callbacks = calloc(NUM_LOAD_BATCH, sizeof(struct slab_callback *));
@@ -629,14 +626,6 @@ skip:
 
   R_LOCK(&s->tree_lock);
 
-  if (atomic_load_explicit(&s->full, 
-       memory_order_acquire) && s->seq < rc_thr &&
-    !__sync_fetch_and_or(&s->update_ref, 0) &&
-      !((centree_node)s->centree_node)->removed) {
-    enqueue = 1;
-    ((centree_node)s->centree_node)->removed = 1;
-  }
-
   cur = __sync_fetch_and_add(&s->read_ref, 0);
 
   if (s->min == -1 && 
@@ -656,11 +645,6 @@ skip:
     //printf("REMOVED FILE\n");
   }
   R_UNLOCK(&s->tree_lock);
-
-
-#if WITH_RC
-  if (enqueue) bgq_enqueue(FSST, s->centree_node);
-#endif
 
   if (cb->cb_cb == add_in_tree_for_update) {
     free(cb->item);

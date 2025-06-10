@@ -1,38 +1,97 @@
 #include "headers.h"
+#include <getopt.h>
 #include <math.h>
 
 int print = 0;
 int load = 1;
 extern int cache_hit;
 extern int try_fsst;
-int rc_thr = 1;
+
+static void print_help(char *n) {
+  printf("Usage: %s [options] <nb_disks> <nb_workers> <nb_distributors>\n", n);
+  puts("Options:");
+  puts("  -P, --page-cache-size <bytes>   set page cache size");
+  puts("  -b, --bench <bench_name>        select workload (e.g. ycsb_c_zipfian)");
+  puts("  -a, --api <api_name>            select API (ycsb, dbbench, bgwork, production)");
+  puts("  -k, --kv-size <bytes>           set KV_SIZE");
+  puts("  -m, --max-file-size <bytes>     set MAX_FILE_SIZE");
+  puts("  -i, --insert-mode <ascend|descend|random>");
+  puts("  -o, --old-percent <float>       set OLD_PERCENT");
+  puts("  -e, --epoch <number>            set EPOCH");
+  puts("  -r, --with-reins                enable reinsertion logic");
+  puts("  -R, --with-rebal                enable rebalancing logic");
+  puts("  -n, --items <number>            set number of items in DB");
+  puts("  -q, --requests <number>         set number of requests");
+  puts("  -h, --help                      show this help message");
+}
 
 int main(int argc, char **argv) {
-  int nb_disks, nb_workers_per_disk, nb_distributors_per_disk;
   declare_timer;
+    init_default_config(&cfg);
 
-  /* Definition of the workload, if changed you need to erase the DB before
-   * relaunching */
-  struct workload w = {
-      //.api = &YCSB,
-      //.api = &DBBENCH,
-      .api = &BGWORK,
-      .nb_items_in_db = 100000000LU,
-      .nb_load_injectors = 4,
-  };
+    static struct option long_opts[] = {
+        {"page-cache-size", required_argument, 0, 'P'},
+        {"bench",           required_argument, 0, 'b'},
+        {"api",             required_argument, 0, 'a'},
+        {"kv-size",         required_argument, 0, 'k'},
+        {"max-file-size",   required_argument, 0, 'm'},
+        {"insert-mode",     required_argument, 0, 'i'},
+        {"old-percent",     required_argument, 0, 'o'},
+        {"epoch",           required_argument, 0, 'e'},
+        {"with-reins",      no_argument,       0, 'r'},
+        {"with-rebal",      no_argument,       0, 'R'},
+        {"items",           required_argument, 0, 'n'},
+        {"requests",        required_argument, 0, 'q'},
+        {"help",            no_argument,       0, 'h'},
+        {0,0,0,0}
+    };
 
-  /* Parsing of the options */
-  if (argc < 4)
-    die("Usage: ./main <nb disks> <nb workers per disk> <nb "
-        "distributors>\n\tData is stored in %s\n",
-        PATH);
-  nb_disks = atoi(argv[1]);
-  nb_workers_per_disk = atoi(argv[2]);
-  nb_distributors_per_disk = atoi(argv[3]);
+    int opt;
+    while ((opt = getopt_long(argc, argv, "P:b:a:k:m:i:o:e:rRn:q:h", long_opts, NULL)) != -1) {
+        switch (opt) {
+        case 'P': cfg.page_cache_size = strtoul(optarg, NULL, 0); break;
+        case 'b': cfg.bench           = parse_bench(optarg);     break;
+        case 'a': cfg.api             = parse_api(optarg);      break;
+        case 'k': cfg.kv_size         = atoi(optarg);            break;
+        case 'm': cfg.max_file_size   = strtoul(optarg, NULL, 0); break;
+        case 'i': cfg.insert_mode     = parse_insert_mode(optarg); break;
+        case 'o': cfg.old_percent     = atof(optarg);            break;
+        case 'e': cfg.epoch           = strtoul(optarg, NULL, 0); break;
+        case 'r': cfg.with_reins      = 1;                       break;
+        case 'R': cfg.with_rebal      = 1;                       break;
+        case 'n': cfg.nb_items_in_db  = strtoull(optarg, NULL, 0); break;
+        case 'q': cfg.nb_requests     = strtoull(optarg, NULL, 0); break;
+        case 'h':
+	    print_help(argv[0]);
+            return 0;
+        default:
+            fprintf(stderr, "Unknown option\n");
+            return 1;
+        }
+    }
+        // 남은 포지셔널 세 개
+    if (optind + 3 > argc) {
+	print_help(argv[0]);
+        return 1;
+    }
+    int nb_disks  = atoi(argv[optind++]);
+    int nb_workers_per_disk = atoi(argv[optind++]);
+    int nb_distributors_per_disk = atoi(argv[optind++]);
+
+    // --- 워크로드 초기화 예시 ---
+    struct workload w;
+    w.api            = cfg.api;
+    w.nb_items_in_db = cfg.nb_items_in_db;
+    w.nb_load_injectors = 4;  // 고정이 필요하다면 옵션화 가능
+    if (cfg.nb_requests)
+        w.nb_requests = cfg.nb_requests;
+
+    // 벤치 실행
+    bench_t workload, workloads[] = { cfg.bench };
 
   /* Pretty printing useful info */
   printf("# Configuration:\n");
-  printf("# \tPage cache size: %lu GB\n", PAGE_CACHE_SIZE / 1024 / 1024 / 1024);
+  printf("# \tPage cache size: %lu GB\n", cfg.page_cache_size / 1024 / 1024 / 1024);
   printf("# \tDisks: %d, I/O Workers: %d, Distributors: %d\n",
          nb_disks, nb_workers_per_disk, nb_distributors_per_disk);
   printf(
@@ -43,15 +102,13 @@ int main(int argc, char **argv) {
          MAX_NB_PENDING_CALLBACKS_PER_WORKER);
   printf("# \tThread pinning: %s\n", PINNING ? "yes" : "no");
   printf("# \tBench: %s (%lu elements)\n", w.api->api_name(), w.nb_items_in_db);
-  printf("# \tKV_SIZE: %d, MAX_FILE_SIZE: %lu\n", KV_SIZE, MAX_FILE_SIZE);
+  printf("# \tKV_SIZE: %d, MAX_FILE_SIZE: %lu\n", cfg.kv_size, cfg.max_file_size);
   printf("# \tInsert mode: %s\n", 
-        INSERT_MODE == ASCEND ? "ASCEND" : 
-        INSERT_MODE == DESCEND ? "DESCEND" : 
-        INSERT_MODE == RANDOM ? "RANDOM" : "UNKNOWN");
-
-  //rc_thr = log2((w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) )) * 0.7;
-  rc_thr = (w.nb_items_in_db / (MAX_FILE_SIZE / KV_SIZE) ) * 0.05;
-  printf("RC THR: %d\n", rc_thr);
+        cfg.insert_mode == ASCEND ? "ASCEND" : 
+        cfg.insert_mode == DESCEND ? "DESCEND" : 
+        cfg.insert_mode == RANDOM ? "RANDOM" : "UNKNOWN");
+  printf("# \tReinsertion: %s\n", cfg.with_reins ? "enabled" : "disabled");
+  printf("# \tRebalancing: %s\n", cfg.with_rebal ? "enabled" : "disabled");
 
   /* Initialization of random library */
   start_timer {
@@ -72,7 +129,6 @@ int main(int argc, char **argv) {
   }
   stop_timer("Loading keys from real world file");
 #endif
-
 
   /* Recover database */
   start_timer {
@@ -96,15 +152,7 @@ int main(int argc, char **argv) {
   print = 1;
   cache_hit = 0;
 
-  /* Launch benchs */
   //system("cat /proc/vmstat | grep psw");
-  bench_t workload, workloads[] = {
-			SELECTED_BENCH,
-                    };
-  // sleep(5);
-  // make_fsst();
-  // sleep(5);
-  // cache_hit = 0;
   //tnt_rebalancing();
 
   //if (w.api == &BGWORK) {
@@ -114,51 +162,39 @@ int main(int argc, char **argv) {
   //  stop_timer("Init array for reinsertion test");
   //}
 
-  //start_timer {
-  //  tnt_rebalancing();
-  //}
-  //stop_timer("Rebalancing operations");
+  if (cfg.with_rebal) {
+    start_timer {
+      tnt_rebalancing();
+    }
+    stop_timer("Rebalancing operations");
+  }
 
-  //fsst_worker_init();
-  //start_timer {
-  //  sleep_until_fsstq_empty();
-  //}
-  //stop_timer("Reinsertion operations");
+  if (cfg.with_reins)
+    fsst_worker_init();
 
+  /* Launch benchs */
   foreach (workload, workloads) {
-    if (workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
-      w.nb_requests =
-          2000000LU;  // requests for YCSB E are longer (scans) so we do less
-    } else if (workload == dbbench_all_random || workload == dbbench_all_dist ||
-               workload == dbbench_prefix_random ||
-               workload == dbbench_prefix_dist) {
-      w.nb_requests = 100000000LU;
-    } else {
-      w.nb_requests = 100000000LU;
+    if (!cfg.nb_requests) {
+      if (workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
+        w.nb_requests =
+            2000000LU;  // requests for YCSB E are longer (scans) so we do less
+      } else if (workload == dbbench_all_random || workload == dbbench_all_dist ||
+                 workload == dbbench_prefix_random ||
+                 workload == dbbench_prefix_dist) {
+        w.nb_requests = 100000000LU;
+      } else {
+        w.nb_requests = 100000000LU;
+      }
     }
     run_workload(&w, workload);
     printf("lookup hit: %d\n", cache_hit);
     printf("try_fsst: %d\n", try_fsst);
     cache_hit = 0;
   }
+
   tnt_print();
 
 #if DEBUG
   print_slow_payloads();
 #endif
-
-  /*
-  foreach(workload, workloads) {
-      if(workload == ycsb_e_uniform || workload == ycsb_e_zipfian) {
-         w.nb_requests = 2000000LU; // requests for YCSB E are longer (scans) so
-  we do less } else { w.nb_requests = 100000000LU;
-      }
-      // w.nb_requests = 20000000LU;
-      //w.nb_requests = 100LU;
-      run_workload(&w, workload);
-      printf("lookup hit: %d\n", cache_hit);
-      cache_hit = 0;
-   }
-   return 0;
-  */
 }

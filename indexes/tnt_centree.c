@@ -25,54 +25,12 @@ Retrieved from: http://en.literateprograms.org/Red-black_tree_(C)?oldid=16016
 */
 
 #include "tnt_centree.h"
-#include "../options.h"
+#include "../headers.h"
 #include "btree.h"
 #include <assert.h>
 
 #include <stdlib.h>
 #include <stdio.h>
-
-struct slab {
-  struct slab_context *ctx;
-
-  uint64_t key;
-  uint64_t min;
-  uint64_t max;
-  uint64_t seq;
-
-  void *subtree;
-  void *centree_node;
-#if WITH_FILTER
-  void *filter;
-#endif
-  _Atomic int full;
-  pthread_rwlock_t tree_lock;
-
-  // TODO::JS::구조체 수정
-  size_t item_size;
-  size_t nb_items;   // Number of non freed items
-  size_t nb_max_items;
-  _Atomic size_t last_item;  // Total number of items, including freed
-
-  #if WITH_HOT
-  _Atomic int queued;
-  _Atomic int upward_maxlen;
-  _Atomic size_t cur_ep;
-  _Atomic size_t epcnt;
-  _Atomic size_t prev_epcnt;
-
-  uint64_t *hot_bits;
-  #endif
-
-  int fd;
-  size_t size_on_disk;
-  uint64_t update_ref;
-  uint64_t read_ref;
-
-  unsigned char nb_batched;
-  struct slab_callback **batched_callbacks;
-};
-
 
 typedef centree_node node;
 
@@ -136,7 +94,6 @@ int tnt_pointer_cmp(void *left, void *right) {
 centree centree_create() {
   centree t = malloc(sizeof(struct centree_t));
   t->root = NULL;
-  t->last_visited_node = NULL;
   atomic_init(&t->depth, 0);
   bgqueue = malloc(sizeof(background_queue));
   init_queue(bgqueue);
@@ -162,7 +119,6 @@ node lookup_node(centree t, void *key, compare_func compare) {
   while (n != NULL) {
     int comp_result = compare(key, n->key);
     if (comp_result == 0) {
-      t->last_visited_node = n;
       return n;
     } else if (comp_result < 0) {
       n = n->left;
@@ -301,18 +257,18 @@ void print2DUtil(node n, int space) {
   printf("\n");
   for (int i = 1; i < space; i++) printf(" ");
   if (n->value.slab->min != -1) {
-#if WITH_HOT
-    printf("%lu,%lu:%lu//%lu,%lu,%lu\n", n->value.seq, n->value.level,
-           n->value.slab->nb_items, 
-           atomic_load_explicit(&n->value.slab->cur_ep, memory_order_relaxed), 
-           atomic_load_explicit(&n->value.slab->prev_epcnt, memory_order_relaxed), 
-           atomic_load_explicit(&n->value.slab->epcnt, memory_order_relaxed)
-           );
-#else
-    printf("%lu,%lu:%lu\n", n->value.seq, n->value.level,
-           n->value.slab->nb_items
-           );
-#endif
+    if (cfg.with_reins) {
+      printf("%lu,%lu:%lu//%lu,%lu,%lu\n", n->value.seq, n->value.level,
+             n->value.slab->nb_items, 
+             atomic_load_explicit(&n->value.slab->cur_ep, memory_order_relaxed), 
+             atomic_load_explicit(&n->value.slab->prev_epcnt, memory_order_relaxed), 
+             atomic_load_explicit(&n->value.slab->epcnt, memory_order_relaxed)
+             );
+    } else {
+      printf("%lu,%lu:%lu\n", n->value.seq, n->value.level,
+             n->value.slab->nb_items
+             );
+    }
   }
   else
     printf("%lu,%lu:0\n", n->value.seq, n->value.level);

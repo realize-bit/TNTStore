@@ -42,21 +42,18 @@ struct slab {
   _Atomic int full;
   pthread_lock_t tree_lock;
 
-  // TODO::JS::구조체 수정
   size_t item_size;
   size_t nb_items;   // Number of non freed items
   size_t nb_max_items;
   _Atomic size_t last_item;  // Total number of items, including freed
 
-  #if WITH_HOT
+  // For Reinsertion
   _Atomic int queued;
   _Atomic int upward_maxlen;
   _Atomic size_t cur_ep;
   _Atomic size_t epcnt;
   _Atomic size_t prev_epcnt;
-
   uint64_t *hot_bits;
-  #endif
 
   int fd;
   size_t size_on_disk;
@@ -124,9 +121,7 @@ void remove_item_async(struct slab_callback *callback);
 void remove_and_add_item_async(struct slab_callback *callback);
 
 off_t item_page_num(struct slab *s, size_t idx);
-#if WITH_HOT
 void mark_page_hot(struct slab *s, size_t page_idx);
-#endif
 
 int rebuild_slabs(int filenum, struct dirent **file_list);
 int create_root_slab(void);
