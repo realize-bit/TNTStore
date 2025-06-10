@@ -22,7 +22,7 @@ static void print_help(char *n) {
   puts("  -R, --with-rebal                enable rebalancing logic");
   puts("  -n, --items <number>            set number of items in DB");
   puts("  -q, --requests <number>         set number of requests");
-  puts("  -c, --chunk <number>         chunk size for shuffling");
+  puts("  -c, --chunk <number>            chunk size for shuffling");
   puts("  -h, --help                      show this help message");
 }
 
@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "P:b:a:k:m:i:o:e:rRn:q:h", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "P:b:a:k:m:i:o:e:rRn:q:c:h", long_opts, NULL)) != -1) {
         switch (opt) {
         case 'P': cfg.page_cache_size = strtoul(optarg, NULL, 0); break;
         case 'b': cfg.bench           = parse_bench(optarg);     break;
@@ -110,6 +110,7 @@ int main(int argc, char **argv) {
         cfg.insert_mode == ASCEND ? "ASCEND" : 
         cfg.insert_mode == DESCEND ? "DESCEND" : 
         cfg.insert_mode == RANDOM ? "RANDOM" : "UNKNOWN");
+  printf("# \tChunk for shuffling: %lu\n", cfg.chunk_for_shuffle);
   printf("# \tReinsertion: %s\n", cfg.with_reins ? "enabled" : "disabled");
   printf("# \tRebalancing: %s\n", cfg.with_rebal ? "enabled" : "disabled");
 
