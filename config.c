@@ -73,4 +73,5 @@ void init_default_config(struct runtime_config *cfg) {
     cfg->with_rebal      = 0;
     cfg->nb_items_in_db  = 100000000LU;  // 기존 기본값
     cfg->nb_requests     = 0;            // 런타임 결정
+    cfg->chunk_for_shuffle = 1;
 }

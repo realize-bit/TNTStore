@@ -117,12 +117,6 @@ static size_t submit_slab_buffer(struct slab_context *ctx, int buffer_idx) {
   return __sync_fetch_and_add(&ctx->sent_callbacks, 1);
 }
 
-static uint64_t get_hash_for_item(char *item) {
-  struct item_metadata *meta = (struct item_metadata *)item;
-  char *item_key = &item[sizeof(*meta)];
-  return *(uint64_t *)item_key;
-}
-
 /* Requests are statically attributed to workers using this function */
 struct slab_context *get_slab_context(void *item) {
     /* thread-local counter */
@@ -416,6 +410,7 @@ again:
 
 static uint64_t io_wait = 0;
 
+/*
 static void check_and_handle_tnt(uint64_t real_start, uint64_t dist_time) {
   uint64_t now, dist_util;
 
@@ -430,6 +425,7 @@ static void check_and_handle_tnt(uint64_t real_start, uint64_t dist_time) {
     tnt_rebalancing();
   }
 }
+*/
 
 static void *worker_slab_init(void *pdata) {
   struct slab_context *ctx = pdata;

@@ -683,7 +683,6 @@ index_entry_t *tnt_index_lookup_for_test(struct slab_callback *cb, void *item, i
 }
 
 index_entry_t *tnt_index_lookup(struct slab_callback *cb, void *item) {
-  centree t = centree_root;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;

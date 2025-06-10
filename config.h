@@ -18,6 +18,7 @@ struct runtime_config {
     int                with_rebal;
     uint64_t           nb_items_in_db;
     uint64_t           nb_requests;
+    uint64_t           chunk_for_shuffle;
 };
 
 extern struct runtime_config cfg;

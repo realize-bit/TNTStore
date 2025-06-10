@@ -496,7 +496,6 @@ void add_in_tree_for_update(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
   struct slab *old_s = cb->fsst_slab;
   //uint64_t old_idx = cb->fsst_idx;
-  unsigned char enqueue = 0;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;

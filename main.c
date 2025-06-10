@@ -22,6 +22,7 @@ static void print_help(char *n) {
   puts("  -R, --with-rebal                enable rebalancing logic");
   puts("  -n, --items <number>            set number of items in DB");
   puts("  -q, --requests <number>         set number of requests");
+  puts("  -c, --chunk <number>         chunk size for shuffling");
   puts("  -h, --help                      show this help message");
 }
 
@@ -42,6 +43,7 @@ int main(int argc, char **argv) {
         {"with-rebal",      no_argument,       0, 'R'},
         {"items",           required_argument, 0, 'n'},
         {"requests",        required_argument, 0, 'q'},
+        {"chunk",           required_argument, 0, 'c'},
         {"help",            no_argument,       0, 'h'},
         {0,0,0,0}
     };
@@ -61,6 +63,7 @@ int main(int argc, char **argv) {
         case 'R': cfg.with_rebal      = 1;                       break;
         case 'n': cfg.nb_items_in_db  = strtoull(optarg, NULL, 0); break;
         case 'q': cfg.nb_requests     = strtoull(optarg, NULL, 0); break;
+        case 'c': cfg.chunk_for_shuffle = strtoull(optarg, NULL, 0); break;
         case 'h':
 	    print_help(argv[0]);
             return 0;

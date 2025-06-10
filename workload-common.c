@@ -43,7 +43,6 @@ char *create_workload_item(struct workload *w) {
  */
 void add_in_tree(struct slab_callback *cb, void *item) {
   struct slab *s = cb->slab;
-  unsigned char enqueue = 0;
   struct item_metadata *meta = (struct item_metadata *)item;
   char *item_key = &item[sizeof(*meta)];
   uint64_t key = *(uint64_t *)item_key;
@@ -175,7 +174,7 @@ void repopulate_db(struct workload *w) {
 
     if (cfg.insert_mode == RANDOM) {
     	if (w->api == &BGWORK)
-    	  shuffle_ranges(pos, nb_inserts, 100000000);  
+    	  shuffle_ranges(pos, nb_inserts, cfg.chunk_for_shuffle);  
     	else
     	  shuffle(pos, nb_inserts);  // To be fair to other systems, we shuffle items in
     }
