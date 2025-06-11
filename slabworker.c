@@ -64,8 +64,6 @@ struct slab_context {
   struct pagecache *pagecache __attribute__((aligned(64)));
   struct io_context *io_ctx;
   uint64_t rdt;  // Latest timestamp
-  char *fsst_buf;
-  char *fsst_index_buf;
 } *slab_contexts;
 
 
@@ -494,8 +492,6 @@ static void *worker_distributor_init(void *pdata) {
   if (ctx->worker_id == 0)
     atomic_init(&epoch, 1);
 
-  ctx->fsst_buf = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
-  ctx->fsst_index_buf = aligned_alloc(PAGE_SIZE, 512 * PAGE_SIZE);
   ctx->io_ctx = worker_ioengine_init(ctx->max_pending_callbacks);
   __sync_add_and_fetch(&nb_workers_ready, 1);
 

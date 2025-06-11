@@ -24,9 +24,9 @@ static inline void set_bit(int nr, size_t *addr) {
   asm("btsl %1,%0" : "+m"(*(size_t *)addr) : "Ir"(nr));
 }
 
-#define SET_INVAL(x) set_bit(63, &x)
-#define TEST_INVAL(x) test_bit(63, &x)
-#define GET_SIDX(x) ((x << 1) >> 1)
+//#define SET_INVAL(x) set_bit(63, &x)
+//#define TEST_INVAL(x) test_bit(63, &x)
+#define GET_SIDX(x) ((size_t)((uint32_t)(x) & ~(1u << 31)))
 
 struct slab;
 struct index_entry {  // This index entry could be made much smaller by, e.g.,
