@@ -11,22 +11,6 @@ extern int print;
 extern int load;
 extern uint64_t nb_totals;
 
-/*
- * A slab is a file containing 1 or more items of a given size.
- * The size of items is in slab->item_size.
- *
- * Format is [ [size_t rdt1, size_t key_size1, size_t
- * value_size1][key1][value1][maybe some empty space]     [rdt2, key_size2,
- * value_size2][key2]etc. ]
- *
- * When an idem is deleted its key_size becomes -1. value_size is then equal to
- * a next free idx in the slab. That way, when we reuse an empty spot, we know
- * where the next one is.
- *
- *
- * This whole file assumes that when a file is newly created, then all the data
- * is equal to 0. This should be true on Linux.
- */
 
 static int create_sequence = 0;
 
